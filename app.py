@@ -1,10 +1,10 @@
 from datetime import date
+import hashlib
 import math
 import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
-import streamlit_authenticator as stauth
 from supabase import create_client
 
 st.set_page_config(
@@ -25,74 +25,92 @@ except Exception as e:
     st.stop()
 
 
+# Helper function to hash passwords securely
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
 # ---------------------------------------------------------
-# USER AUTHENTICATION SETUP (Supabase-backed Auth)
+# NATIVE SECURE AUTHENTICATION (Supabase-backed)
 # ---------------------------------------------------------
-def fetch_users_from_db():
-    try:
-        response = supabase.table("users").select("*").execute()
-        users_dict = {"usernames": {}}
-        for row in response.data:
-            users_dict["usernames"][row["username"]] = {
-                "email": row["email"],
-                "name": row["name"],
-                "password": row["password_hash"],
-            }
-        return users_dict
-    except Exception:
-        return {"usernames": {}}
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.user_email = None
+    st.session_state.user_name = None
 
+if not st.session_state.authenticated:
+    st.title("📚 Student Academic & Attendance Hub")
+    st.markdown("### Secure Cloud Login & Registration Portal")
 
-credentials = fetch_users_from_db()
+    tab_login, tab_register = st.tabs(["🔑 Login", "📝 Register New Account"])
 
-authenticator = stauth.Authenticate(
-    credentials,
-    cookie_name="student_hub_cookie",
-    key="student_hub_signature",
-    cookie_expiry_days=30,
-)
+    with tab_login:
+        with st.form("login_form"):
+            login_user = st.text_input("Username")
+            login_pass = st.text_input("Password", type="password")
+            submit_login = st.form_submit_button("Log In", type="primary")
 
-name, authentication_status, username = authenticator.login(location="main")
+            if submit_login:
+                if not login_user or not login_pass:
+                    st.error("Please enter both username and password.")
+                else:
+                    try:
+                        response = (
+                            supabase.table("users")
+                            .select("*")
+                            .eq("username", login_user.strip())
+                            .execute()
+                        )
+                        if response.data:
+                            db_user = response.data[0]
+                            hashed_input = hash_password(login_pass)
+                            if db_user["password_hash"] == hashed_input:
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = db_user["email"]
+                                st.session_state.user_name = db_user["name"]
+                                st.success("Login successful! Loading dashboard...")
+                                st.rerun()
+                            else:
+                                st.error("Incorrect password.")
+                        else:
+                            st.error("Username does not exist.")
+                    except Exception as err:
+                        st.error(f"Database error during login: {err}")
 
-if authentication_status == False:
-    st.error("Username/password is incorrect")
-    st.stop()
-elif authentication_status == None:
-    st.warning("Please enter your username and password")
-
-    with st.expander("📝 New User? Register Here"):
+    with tab_register:
         with st.form("register_form"):
             new_user = st.text_input("Choose Username")
             new_name = st.text_input("Full Name")
             new_email = st.text_input("Email Address")
             new_pass = st.text_input("Password", type="password")
-            reg_submit = st.form_submit_button("Sign Up")
+            submit_reg = st.form_submit_button("Sign Up")
 
-            if reg_submit:
-                if not new_user or not new_pass or not new_email:
+            if submit_reg:
+                if not new_user or not new_pass or not new_email or not new_name:
                     st.error("Please fill in all fields.")
                 else:
-                    hashed_pass = stauth.Hasher([new_pass]).generate()[0]
+                    hashed_pass = hash_password(new_pass)
                     try:
                         supabase.table("users").insert(
                             {
-                                "username": new_user,
-                                "name": new_name,
-                                "email": new_email,
+                                "username": new_user.strip(),
+                                "name": new_name.strip(),
+                                "email": new_email.strip(),
                                 "password_hash": hashed_pass,
                             }
                         ).execute()
                         st.success(
-                            "Account created successfully! Please refresh and log in."
+                            "Account created successfully! You can now switch to the Login tab."
                         )
                     except Exception as err:
                         st.error(
-                            f"Registration failed (Username/Email may already exist): {err}"
+                            f"Registration failed (Username or Email may already be taken): {err}"
                         )
     st.stop()
 
 # If successfully authenticated:
-user_email = credentials["usernames"][username]["email"]
+user_email = st.session_state.user_email
+user_name = st.session_state.user_name
 
 # Custom CSS for Neon Glowing Buttons & UI Polish
 st.markdown(
@@ -285,8 +303,14 @@ def send_telegram_alert(token, chat_id, message):
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
 st.title("📚 Student Academic & Attendance Hub")
-authenticator.logout("Logout", "sidebar")
-st.sidebar.markdown(f"Welcome, **{name}**!")
+
+if st.sidebar.button("🚪 Logout", key="logout_btn"):
+    st.session_state.authenticated = False
+    st.session_state.user_email = None
+    st.session_state.user_name = None
+    st.rerun()
+
+st.sidebar.markdown(f"Welcome, **{user_name}**!")
 
 if "nav_mode" not in st.session_state:
     st.session_state.nav_mode = "Data Entry & Management"
