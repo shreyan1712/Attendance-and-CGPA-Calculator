@@ -168,7 +168,7 @@ def save_data_to_db(email, semester, subjects_list):
             "semester": semester,
             "subjects_json": subjects_list,
         },
-        on_conflict=["user_email", "semester"],
+        on_conflict="user_email,semester",
     ).execute()
 
 
@@ -195,7 +195,7 @@ def save_lock_to_db(email, semester, is_locked):
             "semester": semester,
             "is_locked": is_locked,
         },
-        on_conflict=["user_email", "semester"],
+        on_conflict="user_email,semester",
     ).execute()
 
 
@@ -220,7 +220,7 @@ def save_subscribers_to_db(email, subs):
             "user_email": email,
             "subscribers_json": subs,
         },
-        on_conflict=["user_email"],
+        on_conflict="user_email",
     ).execute()
 
 
@@ -245,7 +245,7 @@ def save_offset_to_db(email, offset):
             "user_email": email,
             "offset_val": offset,
         },
-        on_conflict=["user_email"],
+        on_conflict="user_email",
     ).execute()
 
 
