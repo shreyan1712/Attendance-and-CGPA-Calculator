@@ -52,7 +52,7 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30,
 )
 
-name, authentication_status, username = authenticator.login("main")
+name, authentication_status, username = authenticator.login(location="main")
 
 if authentication_status == False:
     st.error("Username/password is incorrect")
@@ -824,7 +824,7 @@ elif nav_mode == "Calculation Dashboard":
                         st.success(f"{sem_name} has been permanently locked!")
                         st.rerun()
                 with col_c2:
-                    if st.button("❌ Cancel", use_keyword_arguments=True):
+                    if st.button("❌ Cancel", use_container_width=True):
                         st.rerun()
 
             if is_locked:
