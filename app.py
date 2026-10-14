@@ -28,7 +28,6 @@ except Exception as e:
 # ---------------------------------------------------------
 # USER AUTHENTICATION SETUP (Supabase-backed Auth)
 # ---------------------------------------------------------
-# For a clean cloud setup, we manage users in a Supabase table named 'users'
 def fetch_users_from_db():
     try:
         response = supabase.table("users").select("*").execute()
@@ -41,21 +40,21 @@ def fetch_users_from_db():
             }
         return users_dict
     except Exception:
-        # Fallback default dict if table doesn't exist yet
         return {"usernames": {}}
 
 
 credentials = fetch_users_from_db()
 
-# If no users exist yet, provide an initial admin/test setup or allow registration
 authenticator = stauth.Authenticate(
     credentials,
-    "student_hub_cookie",
-    "student_hub_signature",
-    30,
+    cookie_name="student_hub_cookie",
+    key="student_hub_signature",
+    cookie_expiry_days=30,
 )
 
-name, authentication_status, username = authenticator.login("Login", "main")
+name, authentication_status, username = authenticator.login(
+    location="main", fields={"Form name": "Login"}
+)
 
 if authentication_status == False:
     st.error("Username/password is incorrect")
@@ -63,7 +62,6 @@ if authentication_status == False:
 elif authentication_status == None:
     st.warning("Please enter your username and password")
 
-    # Simple registration expander for new users
     with st.expander("📝 New User? Register Here"):
         with st.form("register_form"):
             new_user = st.text_input("Choose Username")
@@ -235,7 +233,6 @@ def save_offset_to_db(email, offset):
     ).execute()
 
 
-# Telegram sync helper
 def fetch_telegram_updates(token, email):
     offset = load_offset_from_db(email)
     url = f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}"
@@ -289,14 +286,13 @@ def send_telegram_alert(token, chat_id, message):
 # ---------------------------------------------------------
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
-st.title(f"📚 Student Academic & Attendance Hub")
+st.title("📚 Student Academic & Attendance Hub")
 authenticator.logout("Logout", "sidebar")
 st.sidebar.markdown(f"Welcome, **{name}**!")
 
 if "nav_mode" not in st.session_state:
     st.session_state.nav_mode = "Data Entry & Management"
 
-# Load session data specific to this logged-in user
 st.session_state.sem_locks = load_locks_from_db(user_email)
 st.session_state.all_semesters = load_data_from_db(user_email)
 
@@ -779,12 +775,12 @@ elif nav_mode == "Calculation Dashboard":
                             st.error("Please configure your Bot Token.")
                         else:
                             msg_lines = [
-                                f"*🎓 GEU ACADEMIC REPORT*",
+                                "*🎓 GEU ACADEMIC REPORT*",
                                 f"📅 *Semester:* {selected_semester}",
                                 f"📊 *Current SGPA:* `{sgpa:.2f} / 10.0`",
                                 f"🏆 *Overall CGPA:* `{cgpa:.2f} / 10.0`",
                                 f"🎯 *Target Attendance:* `{default_target}%`",
-                                f"\n*📖 Subject Breakdown:*",
+                                "\n*📖 Subject Breakdown:*",
                             ]
                             for idx, row in df.iterrows():
                                 msg_lines.append(
@@ -840,7 +836,7 @@ elif nav_mode == "Calculation Dashboard":
             else:
                 if not all_grades_entered:
                     st.info(
-                        f"ℹ️ The **FIX** button will become available once final grade points (> 0.0) are entered for all subjects."
+                        "ℹ️ The **FIX** button will become available once final grade points (> 0.0) are entered for all subjects."
                     )
                     st.button(
                         "🔒 FIX SEMESTER DATA",
