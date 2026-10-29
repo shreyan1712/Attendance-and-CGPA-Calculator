@@ -71,7 +71,7 @@ if "authenticated" not in st.session_state:
 
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
-    st.session_state.reset_username = None
+    st.session_state.reset_email = None
 
 if not st.session_state.authenticated:
     st.title("📚 Student Academic & Attendance Hub")
@@ -149,18 +149,18 @@ if not st.session_state.authenticated:
 
         if st.session_state.reset_step == 1:
             with st.form("forgot_step1_form"):
-                reset_user = st.text_input("Enter your Username")
+                reset_email_input = st.text_input("Enter your Registered Email Address")
                 submit_send_otp = st.form_submit_button("Send Verification Code", type="primary")
 
                 if submit_send_otp:
-                    if not reset_user:
-                        st.error("Please enter your username.")
+                    if not reset_email_input:
+                        st.error("Please enter your email address.")
                     else:
                         try:
                             response = (
                                 supabase.table("users")
                                 .select("*")
-                                .eq("username", reset_user.strip())
+                                .eq("email", reset_email_input.strip())
                                 .execute()
                             )
                             if response.data:
@@ -171,30 +171,30 @@ if not st.session_state.authenticated:
                                 otp = str(random.randint(100000, 999999))
                                 expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
                                 
-                                # Save OTP in database
+                                # Save OTP in database using email query
                                 supabase.table("users").update({
                                     "reset_otp": otp,
                                     "otp_expiry": expiry
-                                }).eq("username", reset_user.strip()).execute()
+                                }).eq("email", user_email_db).execute()
 
                                 # Send email via Resend
                                 email_sent = send_otp_email(user_email_db, otp)
                                 if email_sent:
                                     st.session_state.reset_step = 2
-                                    st.session_state.reset_username = reset_user.strip()
+                                    st.session_state.reset_email = user_email_db
                                     masked_email = user_email_db[:3] + "****" + user_email_db[user_email_db.find("@"):]
                                     st.success(f"Verification code sent to registered email: {masked_email}")
                                     st.rerun()
                                 else:
                                     st.error("Failed to send email. Check RESEND_API_KEY in secrets.")
                             else:
-                                st.error("Username does not exist.")
+                                st.error("No account found with this email address.")
                         except Exception as err:
                             st.error(f"Database error: {err}")
 
         elif st.session_state.reset_step == 2:
             with st.form("forgot_step2_form"):
-                st.info(f"Resetting password for username: **{st.session_state.reset_username}**")
+                st.info(f"Resetting password for email: **{st.session_state.reset_email}**")
                 entered_otp = st.text_input("Enter 6-digit OTP Code")
                 new_reset_pass = st.text_input("New Password", type="password")
                 confirm_reset_pass = st.text_input("Confirm New Password", type="password")
@@ -207,7 +207,7 @@ if not st.session_state.authenticated:
 
                 if submit_cancel:
                     st.session_state.reset_step = 1
-                    st.session_state.reset_username = None
+                    st.session_state.reset_email = None
                     st.rerun()
 
                 if submit_verify:
@@ -217,7 +217,7 @@ if not st.session_state.authenticated:
                         st.error("New passwords do not match.")
                     else:
                         try:
-                            res = supabase.table("users").select("*").eq("username", st.session_state.reset_username).execute()
+                            res = supabase.table("users").select("*").eq("email", st.session_state.reset_email).execute()
                             if res.data:
                                 u_data = res.data[0]
                                 db_otp = u_data.get("reset_otp")
@@ -236,11 +236,11 @@ if not st.session_state.authenticated:
                                         "password_hash": new_hashed_pass,
                                         "reset_otp": None,
                                         "otp_expiry": None
-                                    }).eq("username", st.session_state.reset_username).execute()
+                                    }).eq("email", st.session_state.reset_email).execute()
                                     
                                     st.success("Password successfully updated! You can now log in.")
                                     st.session_state.reset_step = 1
-                                    st.session_state.reset_username = None
+                                    st.session_state.reset_email = None
                             else:
                                 st.error("User not found.")
                         except Exception as err:
