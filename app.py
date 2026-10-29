@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import datetime, date, timedelta
 import hashlib
 import math
+import random
 import pandas as pd
 import plotly.express as px
 import requests
@@ -30,6 +31,36 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+# Helper function to send OTP via Resend API
+def send_otp_email(recipient_email, otp_code):
+    try:
+        api_key = st.secrets.get("RESEND_API_KEY")
+        if not api_key:
+            return False
+
+        url = "https://api.resend.com/emails"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "from": "Student Hub <onboarding@resend.dev>",
+            "to": [recipient_email],
+            "subject": "🔐 Password Reset OTP - Student Academic Hub",
+            "html": f"""
+            <h3>Student Academic & Attendance Hub</h3>
+            <p>You requested a password reset for your account.</p>
+            <p>Your 6-digit OTP verification code is: <b style="font-size: 20px; color: #d90429;">{otp_code}</b></p>
+            <p>This code is valid for 10 minutes.</p>
+            """,
+        }
+
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        return response.status_code in [200, 201]
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------
 # NATIVE SECURE AUTHENTICATION (Supabase-backed)
 # ---------------------------------------------------------
@@ -38,11 +69,17 @@ if "authenticated" not in st.session_state:
     st.session_state.user_email = None
     st.session_state.user_name = None
 
+if "reset_step" not in st.session_state:
+    st.session_state.reset_step = 1
+    st.session_state.reset_username = None
+
 if not st.session_state.authenticated:
     st.title("📚 Student Academic & Attendance Hub")
     st.markdown("### Secure Cloud Login & Registration Portal")
 
-    tab_login, tab_register = st.tabs(["🔑 Login", "📝 Register New Account"])
+    tab_login, tab_register, tab_forgot = st.tabs(
+        ["🔑 Login", "📝 Register New Account", "🔄 Forgot Password"]
+    )
 
     with tab_login:
         with st.form("login_form"):
@@ -106,6 +143,109 @@ if not st.session_state.authenticated:
                         st.error(
                             f"Registration failed (Username or Email may already be taken): {err}"
                         )
+
+    with tab_forgot:
+        st.markdown("### Reset Your Password via Email OTP")
+
+        if st.session_state.reset_step == 1:
+            with st.form("forgot_step1_form"):
+                reset_user = st.text_input("Enter your Username")
+                submit_send_otp = st.form_submit_button("Send Verification Code", type="primary")
+
+                if submit_send_otp:
+                    if not reset_user:
+                        st.error("Please enter your username.")
+                    else:
+                        try:
+                            response = (
+                                supabase.table("users")
+                                .select("*")
+                                .eq("username", reset_user.strip())
+                                .execute()
+                            )
+                            if response.data:
+                                db_user = response.data[0]
+                                user_email_db = db_user["email"]
+                                
+                                # Generate OTP and set 10-minute expiry time
+                                otp = str(random.randint(100000, 999999))
+                                expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+                                
+                                # Save OTP in database
+                                supabase.table("users").update({
+                                    "reset_otp": otp,
+                                    "otp_expiry": expiry
+                                }).eq("username", reset_user.strip()).execute()
+
+                                # Send email via Resend
+                                email_sent = send_otp_email(user_email_db, otp)
+                                if email_sent:
+                                    st.session_state.reset_step = 2
+                                    st.session_state.reset_username = reset_user.strip()
+                                    masked_email = user_email_db[:3] + "****" + user_email_db[user_email_db.find("@"):]
+                                    st.success(f"Verification code sent to registered email: {masked_email}")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to send email. Check RESEND_API_KEY in secrets.")
+                            else:
+                                st.error("Username does not exist.")
+                        except Exception as err:
+                            st.error(f"Database error: {err}")
+
+        elif st.session_state.reset_step == 2:
+            with st.form("forgot_step2_form"):
+                st.info(f"Resetting password for username: **{st.session_state.reset_username}**")
+                entered_otp = st.text_input("Enter 6-digit OTP Code")
+                new_reset_pass = st.text_input("New Password", type="password")
+                confirm_reset_pass = st.text_input("Confirm New Password", type="password")
+                
+                col_sub, col_back = st.columns(2)
+                with col_sub:
+                    submit_verify = st.form_submit_button("Verify & Update Password", type="primary")
+                with col_back:
+                    submit_cancel = st.form_submit_button("Cancel / Start Over")
+
+                if submit_cancel:
+                    st.session_state.reset_step = 1
+                    st.session_state.reset_username = None
+                    st.rerun()
+
+                if submit_verify:
+                    if not entered_otp or not new_reset_pass or not confirm_reset_pass:
+                        st.error("Please fill in all fields.")
+                    elif new_reset_pass != confirm_reset_pass:
+                        st.error("New passwords do not match.")
+                    else:
+                        try:
+                            res = supabase.table("users").select("*").eq("username", st.session_state.reset_username).execute()
+                            if res.data:
+                                u_data = res.data[0]
+                                db_otp = u_data.get("reset_otp")
+                                db_expiry = u_data.get("otp_expiry")
+                                
+                                now = datetime.utcnow()
+                                expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
+
+                                if entered_otp.strip() != str(db_otp):
+                                    st.error("Invalid OTP code.")
+                                elif now > expiry_time:
+                                    st.error("OTP has expired. Please request a new one.")
+                                else:
+                                    new_hashed_pass = hash_password(new_reset_pass)
+                                    supabase.table("users").update({
+                                        "password_hash": new_hashed_pass,
+                                        "reset_otp": None,
+                                        "otp_expiry": None
+                                    }).eq("username", st.session_state.reset_username).execute()
+                                    
+                                    st.success("Password successfully updated! You can now log in.")
+                                    st.session_state.reset_step = 1
+                                    st.session_state.reset_username = None
+                            else:
+                                st.error("User not found.")
+                        except Exception as err:
+                            st.error(f"Database error during update: {err}")
+
     st.stop()
 
 # If successfully authenticated:
