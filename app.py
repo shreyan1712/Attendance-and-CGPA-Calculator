@@ -595,15 +595,15 @@ if nav_mode == "Data Entry & Management":
         )
     else:
         st.markdown(
-            f"Register your subjects, credits, and total semester classes for **{selected_semester}**."
+            f"Register your subjects, credits, and current attendance stats for **{selected_semester}**."
         )
 
         with st.form(
             f"add_subject_form_{selected_semester}", clear_on_submit=True
         ):
             st.subheader("New Subject Registration")
-            col1, col2, col3, col4, col5, col6, col7 = st.columns(
-                [2, 3, 1, 1.3, 1, 1, 1]
+            col1, col2, col3, col4, col5, col6 = st.columns(
+                [2, 3, 1, 1, 1, 1]
             )
             with col1:
                 new_code = st.text_input("Subject Code", placeholder="e.g. TCS-401")
@@ -616,18 +616,14 @@ if nav_mode == "Data Entry & Management":
                     "Credits", min_value=1, max_value=10, value=3, step=1
                 )
             with col4:
-                new_total = st.number_input(
-                    "Total Classes", min_value=1, value=40, step=1
-                )
-            with col5:
                 new_attended = st.number_input(
                     "Attended", min_value=0, value=0, step=1
                 )
-            with col6:
+            with col5:
                 new_conducted = st.number_input(
                     "Conducted", min_value=0, value=0, step=1
                 )
-            with col7:
+            with col6:
                 st.markdown("<br>", unsafe_allow_html=True)
                 add_btn = st.form_submit_button("Add")
 
@@ -636,17 +632,12 @@ if nav_mode == "Data Entry & Management":
                     st.error("Please enter both Subject Code and Name.")
                 elif new_attended > new_conducted:
                     st.error("Attended classes cannot exceed conducted classes.")
-                elif new_conducted > new_total:
-                    st.error(
-                        "Conducted classes cannot exceed total semester classes."
-                    )
                 else:
                     current_subjects.append(
                         {
                             "code": new_code.upper(),
                             "name": new_name,
                             "credits": int(new_credits),
-                            "total_classes": int(new_total),
                             "attended": int(new_attended),
                             "conducted": int(new_conducted),
                             "grade_point": 0.0,
@@ -666,10 +657,9 @@ if nav_mode == "Data Entry & Management":
         st.markdown("---")
         st.subheader(f"Currently Registered Subjects ({selected_semester})")
         for idx, subj in enumerate(current_subjects, 1):
-            total_cls = subj.get("total_classes", 40)
             att_date = subj.get("attendance_date", str(date.today()))
             st.markdown(
-                f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Total: {total_cls}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)"
+                f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)"
             )
     else:
         st.info(f"No subjects added for {selected_semester} yet.")
@@ -688,10 +678,9 @@ elif nav_mode == "Update Records":
             st.markdown("---")
             st.subheader(f"Locked Records ({selected_semester})")
             for idx, subj in enumerate(current_subjects, 1):
-                total_cls = subj.get("total_classes", 40)
                 att_date = subj.get("attendance_date", str(date.today()))
                 st.markdown(
-                    f"{idx}. **[{subj['code']}] {subj['name']}** | Total: {total_cls} | Grade Point: **{subj['grade_point']}** | Attended: {subj['attended']}/{subj['conducted']} | Last Updated: `{att_date}`"
+                    f"{idx}. **[{subj['code']}] {subj['name']}** | Grade Point: **{subj['grade_point']}** | Attended: {subj['attended']}/{subj['conducted']} | Last Updated: `{att_date}`"
                 )
     else:
         st.markdown(
@@ -716,7 +705,7 @@ elif nav_mode == "Update Records":
                             "🗑️ Delete", key=f"del_{selected_semester}_{i}"
                         )
 
-                    c1, c2, c3, c4 = st.columns(4)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         code = st.text_input(
                             "Subject Code",
@@ -737,30 +726,23 @@ elif nav_mode == "Update Records":
                             value=int(subj["credits"]),
                             key=f"cred_{selected_semester}_{i}",
                         )
-                    with c4:
-                        total_classes = st.number_input(
-                            "Total Semester Classes",
-                            min_value=1,
-                            value=int(subj.get("total_classes", 40)),
-                            key=f"tot_{selected_semester}_{i}",
-                        )
 
-                    c5, c6, c7 = st.columns(3)
-                    with c5:
+                    c4, c5, c6 = st.columns(3)
+                    with c4:
                         attended = st.number_input(
                             "Classes Attended",
                             min_value=0,
                             value=int(subj["attended"]),
                             key=f"att_{selected_semester}_{i}",
                         )
-                    with c6:
+                    with c5:
                         conducted = st.number_input(
                             "Classes Conducted",
                             min_value=0,
                             value=max(int(subj["conducted"]), attended),
                             key=f"cond_{selected_semester}_{i}",
                         )
-                    with c7:
+                    with c6:
                         endterm = st.number_input(
                             "Final Grade Point (0-10)",
                             min_value=0.0,
@@ -775,7 +757,6 @@ elif nav_mode == "Update Records":
                             code.upper() != subj["code"]
                             or name != subj["name"]
                             or credits != subj["credits"]
-                            or total_classes != subj.get("total_classes", 40)
                             or attended != subj["attended"]
                             or conducted != subj["conducted"]
                             or endterm != subj.get("grade_point", 0.0)
@@ -791,7 +772,6 @@ elif nav_mode == "Update Records":
                                 "code": code.upper(),
                                 "name": name,
                                 "credits": credits,
-                                "total_classes": total_classes,
                                 "attended": attended,
                                 "conducted": conducted,
                                 "grade_point": endterm,
@@ -860,41 +840,17 @@ elif nav_mode == "Calculation Dashboard":
 
                 att = subj["attended"]
                 cond = subj["conducted"]
-                total_cls = subj.get("total_classes", 40)
                 att_date = subj.get("attendance_date", str(date.today()))
                 pct = (att / cond * 100) if cond > 0 else 0.0
 
-                remaining_classes = max(0, total_cls - cond)
-                target_ratio = default_target / 100.0
-                required_total_attended = math.ceil(target_ratio * total_cls)
-                needed_from_remaining = max(
-                    0, required_total_attended - att
-                )
-
                 if pct >= default_target:
-                    margin = int(
-                        (100 * att - default_target * cond) / default_target
-                    )
-                    current_status = f"Safe (Can skip {margin})"
-                else:
-                    needed_consecutive = math.ceil(
-                        (target_ratio * cond - att) / (1.0 - target_ratio)
-                    )
-                    current_status = (
-                        f"Short (Need next {max(1, needed_consecutive)})"
-                    )
-
-                if pct >= default_target:
+                    max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
+                    current_status = f"Safe (Can skip {max_skips})"
                     target_status = "Target Maintained"
                 else:
-                    if needed_from_remaining <= remaining_classes:
-                        target_status = (
-                            f"Need {needed_from_remaining} of {remaining_classes} left"
-                        )
-                    else:
-                        target_status = (
-                            f"Unachievable (Need {needed_from_remaining}/{remaining_classes})"
-                        )
+                    needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
+                    current_status = f"Short (Need next {max(1, needed_consecutive)})"
+                    target_status = f"Need next {max(1, needed_consecutive)} classes"
 
                 att_data.append(
                     {
@@ -902,7 +858,6 @@ elif nav_mode == "Calculation Dashboard":
                         "Code": subj["code"],
                         "Subject": subj["name"],
                         "Credits": subj["credits"],
-                        "Total Classes": total_cls,
                         "Attended": att,
                         "Conducted": cond,
                         "Percentage": round(pct, 2),
