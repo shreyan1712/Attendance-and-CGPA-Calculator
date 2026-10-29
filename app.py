@@ -31,6 +31,11 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+# Helper function to get current Indian Standard Time (IST)
+def get_ist_time():
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+
+
 # Helper function to send OTP & Emails via API
 def send_otp_email(recipient_email, otp_code):
     try:
@@ -86,7 +91,7 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION
+# NATIVE SECURE AUTHENTICATION & SESSION PERSISTENCE
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -109,6 +114,7 @@ if not st.session_state.authenticated:
         with st.form("login_form"):
             login_user = st.text_input("Username")
             login_pass = st.text_input("Password", type="password")
+            stay_signed_in = st.checkbox("Stay signed in", value=True)
             submit_login = st.form_submit_button("Log In", type="primary")
 
             if submit_login:
@@ -192,7 +198,7 @@ if not st.session_state.authenticated:
                                 user_email_db = db_user["email"]
                                 
                                 otp = str(random.randint(100000, 999999))
-                                expiry = (datetime.now() + timedelta(minutes=10)).isoformat()
+                                expiry = (get_ist_time() + timedelta(minutes=10)).isoformat()
                                 
                                 supabase.table("users").update({
                                     "reset_otp": otp,
@@ -244,7 +250,7 @@ if not st.session_state.authenticated:
                                 db_otp = u_data.get("reset_otp")
                                 db_expiry = u_data.get("otp_expiry")
                                 
-                                now = datetime.now()
+                                now = get_ist_time()
                                 expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
 
                                 if entered_otp.strip() != str(db_otp):
@@ -273,9 +279,9 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
-# Update presence heartbeat (using local time now) & check for active pranks
+# Update presence heartbeat (using IST time) & check for active pranks
 try:
-    supabase.table("users").update({"last_seen": datetime.now().isoformat()}).eq("email", user_email).execute()
+    supabase.table("users").update({"last_seen": get_ist_time().isoformat()}).eq("email", user_email).execute()
 except Exception:
     pass
 
@@ -285,7 +291,7 @@ try:
         supabase.table("users").update({"prank_active": False}).eq("email", user_email).execute()
         st.markdown("""
             <style>
-            body { overflow: hidden; }
+            body { overflow: hidden; background: black; }
             .matrix-screen {
                 position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                 background-color: black; color: #00ff00; z-index: 999999;
@@ -294,11 +300,18 @@ try:
             canvas { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
             .prank-popup {
                 position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                background: rgba(0, 0, 0, 0.85); border: 3px solid #ff0000; padding: 40px;
-                text-align: center; border-radius: 12px; box-shadow: 0 0 30px #ff0000; z-index: 1000000;
+                background: rgba(0, 0, 0, 0.9); border: 4px solid #ff0000; padding: 40px;
+                text-align: center; border-radius: 12px; box-shadow: 0 0 40px #ff0000; z-index: 1000000;
+                animation: glitch 0.2s infinite;
             }
-            .glitch-title { font-size: 45px; color: #ff0000; font-weight: bold; text-shadow: 0 0 10px #ff0000; margin-bottom: 10px; }
-            .glitch-sub { font-size: 20px; color: #00ff00; text-shadow: 0 0 5px #00ff00; }
+            @keyframes glitch {
+                0% { transform: translate(-50%, -50%) skew(0deg); }
+                20% { transform: translate(-52%, -48%) skew(-2deg); }
+                40% { transform: translate(-48%, -52%) skew(2deg); }
+                60% { transform: translate(-50%, -50%) skew(0deg); }
+            }
+            .glitch-title { font-size: 40px; color: #ff0000; font-weight: bold; text-shadow: 0 0 15px #ff0000; margin-bottom: 15px; }
+            .glitch-sub { font-size: 20px; color: #00ff00; text-shadow: 0 0 8px #00ff00; }
             </style>
             <div class="matrix-screen" id="matrixContainer">
                 <canvas id="matrixCanvas"></canvas>
@@ -308,7 +321,7 @@ try:
                 </div>
             </div>
             <script>
-                // Matrix Digital Rain Generator
+                // Matrix Digital Rain Generator (Green numbers/chars cascading fast)
                 const canvas = document.getElementById('matrixCanvas');
                 const ctx = canvas.getContext('2d');
                 canvas.width = window.innerWidth;
@@ -323,10 +336,10 @@ try:
                 }
 
                 function drawMatrix() {
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#0f0';
-                    ctx.font = fontSize + 'px monospace';
+                    ctx.fillStyle = '#00ff00';
+                    ctx.font = 'bold ' + fontSize + 'px monospace';
                     for (let i = 0; i < drops.length; i++) {
                         const text = characters.charAt(Math.floor(Math.random() * characters.length));
                         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
@@ -336,21 +349,23 @@ try:
                         drops[i]++;
                     }
                 }
-                const matrixInterval = setInterval(drawMatrix, 33);
+                const matrixInterval = setInterval(drawMatrix, 20);
 
                 // Transition to GET PRANKED! after 4 seconds
                 setTimeout(function() {
-                    document.getElementById('prankBox').style.borderColor = '#00ff00';
-                    document.getElementById('prankBox').style.boxShadow = '0 0 40px #00ff00';
-                    document.getElementById('prankBox').innerHTML = "<h1 style='color: #00ff00; font-size: 60px; text-shadow: 0 0 20px #00ff00; margin: 0;'>😂 GET PRANKED! 😂</h1><p style='color: white; font-size: 18px; margin-top: 15px;'>Your files are completely safe. Nice try though!</p>";
+                    const box = document.getElementById('prankBox');
+                    box.style.borderColor = '#00ff00';
+                    box.style.boxShadow = '0 0 50px #00ff00';
+                    box.style.animation = 'none';
+                    box.innerHTML = "<h1 style='color: #00ff00; font-size: 65px; text-shadow: 0 0 25px #00ff00; margin: 0;'>😂 GET PRANKED! 😂</h1><p style='color: white; font-size: 20px; margin-top: 20px; font-weight: bold;'>Your files are completely safe. Nice try though!</p>";
                 }, 4000);
 
-                // Close and reload after 7.5 seconds total
+                // Close and reload after 8 seconds total
                 setTimeout(function() {
                     clearInterval(matrixInterval);
                     document.getElementById('matrixContainer').style.display = 'none';
                     window.location.reload();
-                }, 7500);
+                }, 8000);
             </script>
         """, unsafe_allow_html=True)
         st.stop()
@@ -496,7 +511,7 @@ if is_admin and admin_mode:
         st.subheader("📡 Live Presence & Prank Controller")
         
         if users_list:
-            now = datetime.now()
+            now = get_ist_time()
             for u in users_list:
                 u_email = u["email"]
                 u_name = u["name"]
