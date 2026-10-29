@@ -31,7 +31,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-# Helper function to send OTP via Resend API
+# Helper function to send OTP & Emails via Resend API
 def send_otp_email(recipient_email, otp_code):
     try:
         api_key = st.secrets.get("RESEND_API_KEY")
@@ -53,6 +53,30 @@ def send_otp_email(recipient_email, otp_code):
             <p>Your 6-digit OTP verification code is: <b style="font-size: 20px; color: #d90429;">{otp_code}</b></p>
             <p>This code is valid for 10 minutes.</p>
             """,
+        }
+
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        return response.status_code in [200, 201]
+    except Exception:
+        return False
+
+
+def send_report_email(recipient_email, subject_line, report_html):
+    try:
+        api_key = st.secrets.get("RESEND_API_KEY")
+        if not api_key:
+            return False
+
+        url = "https://api.resend.com/emails"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "from": "Student Hub <onboarding@resend.dev>",
+            "to": [recipient_email],
+            "subject": subject_line,
+            "html": report_html,
         }
 
         response = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -167,17 +191,14 @@ if not st.session_state.authenticated:
                                 db_user = response.data[0]
                                 user_email_db = db_user["email"]
                                 
-                                # Generate OTP and set 10-minute expiry time
                                 otp = str(random.randint(100000, 999999))
                                 expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
                                 
-                                # Save OTP in database using email query
                                 supabase.table("users").update({
                                     "reset_otp": otp,
                                     "otp_expiry": expiry
                                 }).eq("email", user_email_db).execute()
 
-                                # Send email via Resend
                                 email_sent = send_otp_email(user_email_db, otp)
                                 if email_sent:
                                     st.session_state.reset_step = 2
@@ -339,106 +360,6 @@ def save_lock_to_db(email, semester, is_locked):
     ).execute()
 
 
-def load_subscribers_from_db(email):
-    try:
-        response = (
-            supabase.table("telegram_subscribers")
-            .select("*")
-            .eq("user_email", email)
-            .execute()
-        )
-        if response.data:
-            return response.data[0].get("subscribers_json", {})
-    except Exception:
-        pass
-    return {}
-
-
-def save_subscribers_to_db(email, subs):
-    supabase.table("telegram_subscribers").upsert(
-        {
-            "user_email": email,
-            "subscribers_json": subs,
-        },
-        on_conflict="user_email",
-    ).execute()
-
-
-def load_offset_from_db(email):
-    try:
-        response = (
-            supabase.table("telegram_offsets")
-            .select("*")
-            .eq("user_email", email)
-            .execute()
-        )
-        if response.data:
-            return response.data[0].get("offset_val", 0)
-    except Exception:
-        pass
-    return 0
-
-
-def save_offset_to_db(email, offset):
-    supabase.table("telegram_offsets").upsert(
-        {
-            "user_email": email,
-            "offset_val": offset,
-        },
-        on_conflict="user_email",
-    ).execute()
-
-
-def fetch_telegram_updates(token, email):
-    offset = load_offset_from_db(email)
-    url = f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}"
-    try:
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("ok"):
-                subs = load_subscribers_from_db(email)
-                new_found = False
-                max_update_id = offset
-
-                for result in data.get("result", []):
-                    update_id = result.get("update_id", 0)
-                    if update_id >= max_update_id:
-                        max_update_id = update_id + 1
-
-                    message = result.get("message", {})
-                    chat = message.get("chat", {})
-                    chat_id = str(chat.get("id"))
-                    if chat_id:
-                        first_name = chat.get("first_name", "User")
-                        username_tg = chat.get("username", "")
-                        name_label = (
-                            f"{first_name} (@{username_tg})"
-                            if username_tg
-                            else first_name
-                        )
-                        if chat_id not in subs:
-                            new_found = True
-                        subs[chat_id] = name_label
-
-                save_subscribers_to_db(email, subs)
-                save_offset_to_db(email, max_update_id)
-                return True, new_found
-    except Exception:
-        pass
-    return False, False
-
-
-def send_telegram_alert(token, chat_id, message):
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try:
-        response = requests.post(url, json=payload, timeout=5)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
 # ---------------------------------------------------------
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
@@ -470,25 +391,6 @@ default_target = st.sidebar.slider(
     value=75.0,
     step=1.0,
 )
-
-if (
-    hasattr(st, "secrets")
-    and "telegram" in st.secrets
-    and "bot_token" in st.secrets.telegram
-):
-    TELEGRAM_BOT_TOKEN = st.secrets.telegram.bot_token
-    TELEGRAM_BOT_USERNAME = st.secrets.telegram.get(
-        "bot_username", "GEU_Academic_Bot"
-    )
-else:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Telegram Bot Settings")
-    TELEGRAM_BOT_TOKEN = st.sidebar.text_input(
-        "Bot Token", type="password", placeholder="Enter Bot Token"
-    )
-    TELEGRAM_BOT_USERNAME = st.sidebar.text_input(
-        "Bot Username", placeholder="e.g. GEU_Academic_Bot"
-    )
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Menu")
@@ -885,89 +787,67 @@ elif nav_mode == "Calculation Dashboard":
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Telegram Hub
+            # Email Dispatcher Hub
             st.markdown("---")
-            st.subheader("📱 Telegram Bot Subscriber Hub & Dispatcher")
-            col_qr, col_disp = st.columns([1, 2])
+            st.subheader("📧 Email Report Dispatcher")
+            st.markdown(f"Dispatch your complete academic performance report for **{selected_semester}** directly to your registered email (`{user_email}`).")
 
-            with col_qr:
-                if TELEGRAM_BOT_USERNAME:
-                    bot_url = f"https://t.me/{TELEGRAM_BOT_USERNAME.strip('@')}"
-                    qr_api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={bot_url}"
-                    st.image(
-                        qr_api_url,
-                        caption=f"Scan to open @{TELEGRAM_BOT_USERNAME.strip('@')}",
-                    )
+            if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
+                subject_text = f"📊 GEU Academic Report - {selected_semester}"
+                
+                rows_html = ""
+                for idx, row in df.iterrows():
+                    rows_html += f"""
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
+                    </tr>
+                    """
+
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                    <h2 style="color: #d90429; text-align: center;">🎓 Student Academic & Attendance Hub</h2>
+                    <hr style="border: none; border-top: 1px solid #eee;" />
+                    <p>Hello <b>{user_name}</b>,</p>
+                    <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
+                    
+                    <ul style="list-style: none; padding: 0;">
+                        <li>📅 <b>Semester:</b> {selected_semester}</li>
+                        <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
+                        <li>🏆 <b>Overall CGPA:</b> {cgpa:.2f} / 10.0</li>
+                        <li>🎯 <b>Target Attendance:</b> {default_target}%</li>
+                    </ul>
+
+                    <h3 style="margin-top: 20px;">Subject Breakdown</h3>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
+                        <thead>
+                            <tr style="background-color: #f8f9fa;">
+                                <th style="padding: 8px; border: 1px solid #ddd;">Code</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Subject</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Attendance</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Status</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Grade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                        </tbody>
+                    </table>
+                    
+                    <p style="margin-top: 30px; font-size: 12px; color: #777; text-align: center;">
+                        Generated automatically via Student Academic & Attendance Hub.
+                    </p>
+                </div>
+                """
+
+                sent = send_report_email(user_email, subject_text, html_body)
+                if sent:
+                    st.success(f"Successfully sent the report to **{user_email}** via Resend!")
                 else:
-                    st.info("💡 Configure your Bot Username.")
-
-            with col_disp:
-                st.markdown("#### 👥 Select Subscriber & Dispatch")
-                if st.button("🔄 Sync New Subscribers"):
-                    if not TELEGRAM_BOT_TOKEN:
-                        st.error("Please configure your Bot Token.")
-                    else:
-                        success, found_new = fetch_telegram_updates(
-                            TELEGRAM_BOT_TOKEN, user_email
-                        )
-                        if success:
-                            st.success("Subscribers synced successfully!")
-                            st.rerun()
-                        else:
-                            st.error("Failed to fetch updates from Telegram.")
-
-                subscribers = load_subscribers_from_db(user_email)
-                if subscribers:
-                    subscriber_options = {
-                        name_val: cid for cid, name_val in subscribers.items()
-                    }
-                    selected_subscriber_label = st.selectbox(
-                        "Choose Recipient", options=list(subscriber_options.keys())
-                    )
-                    selected_chat_id = subscriber_options.get(
-                        selected_subscriber_label
-                    )
-
-                    if st.button(
-                        "🚀 DISPATCH REPORT",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        if not TELEGRAM_BOT_TOKEN:
-                            st.error("Please configure your Bot Token.")
-                        else:
-                            msg_lines = [
-                                "*🎓 GEU ACADEMIC REPORT*",
-                                f"📅 *Semester:* {selected_semester}",
-                                f"📊 *Current SGPA:* `{sgpa:.2f} / 10.0`",
-                                f"🏆 *Overall CGPA:* `{cgpa:.2f} / 10.0`",
-                                f"🎯 *Target Attendance:* `{default_target}%`",
-                                "\n*📖 Subject Breakdown:*",
-                            ]
-                            for idx, row in df.iterrows():
-                                msg_lines.append(
-                                    f"• *{row['Code']}* ({row['Subject']})\n"
-                                    f"  └ Percentage: `{row['Percentage']}%`\n"
-                                    f"  └ Current: _{row['Current Status']}_\n"
-                                    f"  └ Target Plan: _{row['Target Projection']}_\n"
-                                    f"  └ Last Updated: `{row['Last Updated']}`\n"
-                                )
-                            full_report = "\n".join(msg_lines)
-                            sent = send_telegram_alert(
-                                TELEGRAM_BOT_TOKEN, selected_chat_id, full_report
-                            )
-                            if sent:
-                                st.success(
-                                    f"Report dispatched to {selected_subscriber_label}!"
-                                )
-                            else:
-                                st.error(
-                                    "Failed to dispatch. Ensure the user has started your bot first."
-                                )
-                else:
-                    st.warning(
-                        "No subscribers found yet. Scan QR code, press Start on your bot, and click Sync."
-                    )
+                    st.error("Failed to send email. Please check your Resend API key configuration.")
 
             # Semester Fixation
             st.markdown("---")
