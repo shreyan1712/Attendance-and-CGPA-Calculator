@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import hashlib
 import math
 import random
@@ -32,8 +32,11 @@ def hash_password(password):
 
 
 # Helper function to get current Indian Standard Time (IST)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
 def get_ist_time():
-    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return datetime.now(IST)
 
 
 # Helper function to send OTP & Emails via API
@@ -98,6 +101,19 @@ if "authenticated" not in st.session_state:
     st.session_state.user_email = None
     st.session_state.user_name = None
 
+# Check query parameters for persistent login token
+query_params = st.query_params
+if not st.session_state.authenticated and "user" in query_params:
+    saved_email = query_params["user"]
+    try:
+        res = supabase.table("users").select("*").eq("email", saved_email).execute()
+        if res.data:
+            st.session_state.authenticated = True
+            st.session_state.user_email = res.data[0]["email"]
+            st.session_state.user_name = res.data[0]["name"]
+    except Exception:
+        pass
+
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
     st.session_state.reset_email = None
@@ -135,6 +151,10 @@ if not st.session_state.authenticated:
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = db_user["email"]
                                 st.session_state.user_name = db_user["name"]
+                                
+                                if stay_signed_in:
+                                    st.query_params["user"] = db_user["email"]
+                                    
                                 st.success("Login successful! Loading dashboard...")
                                 st.rerun()
                             else:
@@ -310,18 +330,18 @@ try:
                 40% { transform: translate(-48%, -52%) skew(2deg); }
                 60% { transform: translate(-50%, -50%) skew(0deg); }
             }
-            .glitch-title { font-size: 40px; color: #ff0000; font-weight: bold; text-shadow: 0 0 15px #ff0000; margin-bottom: 15px; }
-            .glitch-sub { font-size: 20px; color: #00ff00; text-shadow: 0 0 8px #00ff00; }
+            .glitch-title { font-size: 38px; color: #ff0000; font-weight: bold; text-shadow: 0 0 15px #ff0000; margin-bottom: 15px; }
+            .glitch-sub { font-size: 18px; color: #00ff00; text-shadow: 0 0 8px #00ff00; }
             </style>
             <div class="matrix-screen" id="matrixContainer">
                 <canvas id="matrixCanvas"></canvas>
                 <div class="prank-popup" id="prankBox">
                     <div class="glitch-title">⚠️ SYSTEM BREACH DETECTED ⚠️</div>
-                    <div class="glitch-sub">Extracting local database & student credentials...</div>
+                    <div class="glitch-sub" id="prankSubText">Extracting local database & student credentials...</div>
                 </div>
             </div>
             <script>
-                // Matrix Digital Rain Generator (Green numbers/chars cascading fast)
+                // Matrix Digital Rain Generator (Fast green cascading characters)
                 const canvas = document.getElementById('matrixCanvas');
                 const ctx = canvas.getContext('2d');
                 canvas.width = window.innerWidth;
@@ -351,7 +371,7 @@ try:
                 }
                 const matrixInterval = setInterval(drawMatrix, 20);
 
-                // Transition to GET PRANKED! after 4 seconds
+                // Successfully transition to GET PRANKED! after 4 seconds
                 setTimeout(function() {
                     const box = document.getElementById('prankBox');
                     box.style.borderColor = '#00ff00';
@@ -468,6 +488,8 @@ if st.sidebar.button("🚪 Logout", key="logout_btn"):
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
+    if "user" in st.query_params:
+        del st.query_params["user"]
     st.rerun()
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
