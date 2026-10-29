@@ -21,7 +21,7 @@ try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     st.error(
-        "❌ Missing Supabase Secrets! Please configure `SUPABASE_URL` and `SUPABASE_KEY` in your Streamlit Cloud Secrets settings."
+        "❌ Missing Secrets! Please configure your connection settings in Streamlit Cloud."
     )
     st.stop()
 
@@ -31,7 +31,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-# Helper function to send OTP & Emails via Resend API
+# Helper function to send OTP & Emails via API
 def send_otp_email(recipient_email, otp_code):
     try:
         api_key = st.secrets.get("RESEND_API_KEY")
@@ -86,7 +86,7 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION (Supabase-backed)
+# NATIVE SECURE AUTHENTICATION
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -207,7 +207,7 @@ if not st.session_state.authenticated:
                                     st.success(f"Verification code sent to registered email: {masked_email}")
                                     st.rerun()
                                 else:
-                                    st.error("Failed to send email. Check RESEND_API_KEY in secrets.")
+                                    st.error("Failed to send verification email. Please try again.")
                             else:
                                 st.error("No account found with this email address.")
                         except Exception as err:
@@ -391,6 +391,24 @@ default_target = st.sidebar.slider(
     value=75.0,
     step=1.0,
 )
+
+# ---------------------------------------------------------
+# HIDDEN ADMIN PANEL (Securely verified via Secrets)
+# ---------------------------------------------------------
+admin_email_secret = st.secrets.get("admin_email", "")
+if admin_email_secret and user_email == admin_email_secret:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🕵️ Admin Overview")
+    try:
+        all_records = supabase.table("student_attendance").select("*").execute()
+        if all_records.data:
+            friend_emails = list(set([row["user_email"] for row in all_records.data if row["user_email"] != user_email]))
+            if friend_emails:
+                selected_friend = st.sidebar.selectbox("Select Friend's Email", options=friend_emails)
+                if selected_friend:
+                    st.sidebar.info(f"Viewing records for: {selected_friend}")
+    except Exception:
+        pass
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Menu")
@@ -651,6 +669,13 @@ elif nav_mode == "Update Records":
 elif nav_mode == "Calculation Dashboard":
     st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
 
+    # If admin selected a friend from sidebar, optionally display their data or stats
+    # For regular view, display the logged-in user's data:
+    target_email_to_display = user_email
+    if admin_email_secret and user_email == admin_email_secret:
+        # Check if an admin override is active via session or dropdown if desired
+        pass
+
     overall_weighted_gp = 0.0
     overall_credits = 0
     has_any_subjects = False
@@ -793,7 +818,7 @@ elif nav_mode == "Calculation Dashboard":
             st.markdown(f"Dispatch your complete academic performance report for **{selected_semester}** directly to your registered email (`{user_email}`).")
 
             if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
-                subject_text = f"📊 GEU Academic Report - {selected_semester}"
+                subject_text = f"📊 Academic Report - {selected_semester}"
                 
                 rows_html = ""
                 for idx, row in df.iterrows():
@@ -845,9 +870,9 @@ elif nav_mode == "Calculation Dashboard":
 
                 sent = send_report_email(user_email, subject_text, html_body)
                 if sent:
-                    st.success(f"Successfully sent the report to **{user_email}** via Resend!")
+                    st.success(f"Successfully sent the report to **{user_email}**!")
                 else:
-                    st.error("Failed to send email. Please check your Resend API key configuration.")
+                    st.error("Failed to send email. Please check your configuration.")
 
             # Semester Fixation
             st.markdown("---")
