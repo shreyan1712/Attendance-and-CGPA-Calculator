@@ -192,7 +192,7 @@ if not st.session_state.authenticated:
                                 user_email_db = db_user["email"]
                                 
                                 otp = str(random.randint(100000, 999999))
-                                expiry = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+                                expiry = (datetime.now() + timedelta(minutes=10)).isoformat()
                                 
                                 supabase.table("users").update({
                                     "reset_otp": otp,
@@ -244,7 +244,7 @@ if not st.session_state.authenticated:
                                 db_otp = u_data.get("reset_otp")
                                 db_expiry = u_data.get("otp_expiry")
                                 
-                                now = datetime.utcnow()
+                                now = datetime.now()
                                 expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
 
                                 if entered_otp.strip() != str(db_otp):
@@ -273,9 +273,9 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
-# Update presence heartbeat & check for active pranks
+# Update presence heartbeat (using local time now) & check for active pranks
 try:
-    supabase.table("users").update({"last_seen": datetime.utcnow().isoformat()}).eq("email", user_email).execute()
+    supabase.table("users").update({"last_seen": datetime.now().isoformat()}).eq("email", user_email).execute()
 except Exception:
     pass
 
@@ -285,30 +285,72 @@ try:
         supabase.table("users").update({"prank_active": False}).eq("email", user_email).execute()
         st.markdown("""
             <style>
+            body { overflow: hidden; }
             .matrix-screen {
                 position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                 background-color: black; color: #00ff00; z-index: 999999;
-                font-family: 'Courier New', monospace; padding: 40px; box-sizing: border-box;
-                display: flex; flex-direction: column; justify-content: center; align-items: center;
+                font-family: 'Courier New', monospace; overflow: hidden;
             }
-            .matrix-text { font-size: 24px; text-shadow: 0 0 10px #00ff00; text-align: center; }
+            canvas { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+            .prank-popup {
+                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.85); border: 3px solid #ff0000; padding: 40px;
+                text-align: center; border-radius: 12px; box-shadow: 0 0 30px #ff0000; z-index: 1000000;
+            }
+            .glitch-title { font-size: 45px; color: #ff0000; font-weight: bold; text-shadow: 0 0 10px #ff0000; margin-bottom: 10px; }
+            .glitch-sub { font-size: 20px; color: #00ff00; text-shadow: 0 0 5px #00ff00; }
             </style>
-            <div class="matrix-screen" id="prankBox">
-                <div class="matrix-text" id="prankContent">
-                    <h1>⚠️ SYSTEM BREACH DETECTED ⚠️</h1>
-                    <p>IP Address: 192.168.404.X - Downloading local database...</p>
-                    <p>Bypassing firewall [====================] 100%</p>
-                    <h2 style="color: red; margin-top: 30px;">WARNING: ALL FILES ARE BEING ENCRYPTED</h2>
+            <div class="matrix-screen" id="matrixContainer">
+                <canvas id="matrixCanvas"></canvas>
+                <div class="prank-popup" id="prankBox">
+                    <div class="glitch-title">⚠️ SYSTEM BREACH DETECTED ⚠️</div>
+                    <div class="glitch-sub">Extracting local database & student credentials...</div>
                 </div>
             </div>
             <script>
+                // Matrix Digital Rain Generator
+                const canvas = document.getElementById('matrixCanvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+
+                const characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@#$%^&*()_+-=[]{}|;:,.<>?';
+                const fontSize = 16;
+                const columns = canvas.width / fontSize;
+                const drops = [];
+                for (let i = 0; i < columns; i++) {
+                    drops[i] = 1;
+                }
+
+                function drawMatrix() {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#0f0';
+                    ctx.font = fontSize + 'px monospace';
+                    for (let i = 0; i < drops.length; i++) {
+                        const text = characters.charAt(Math.floor(Math.random() * characters.length));
+                        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                            drops[i] = 0;
+                        }
+                        drops[i]++;
+                    }
+                }
+                const matrixInterval = setInterval(drawMatrix, 33);
+
+                // Transition to GET PRANKED! after 4 seconds
                 setTimeout(function() {
-                    document.getElementById("prankContent").innerHTML = "<h1 style='color: #00ff00; font-size: 60px; text-align:center;'>😂 GET PRANKED! 😂</h1>";
-                }, 3500);
+                    document.getElementById('prankBox').style.borderColor = '#00ff00';
+                    document.getElementById('prankBox').style.boxShadow = '0 0 40px #00ff00';
+                    document.getElementById('prankBox').innerHTML = "<h1 style='color: #00ff00; font-size: 60px; text-shadow: 0 0 20px #00ff00; margin: 0;'>😂 GET PRANKED! 😂</h1><p style='color: white; font-size: 18px; margin-top: 15px;'>Your files are completely safe. Nice try though!</p>";
+                }, 4000);
+
+                // Close and reload after 7.5 seconds total
                 setTimeout(function() {
-                    document.getElementById("prankBox").style.display = "none";
+                    clearInterval(matrixInterval);
+                    document.getElementById('matrixContainer').style.display = 'none';
                     window.location.reload();
-                }, 6000);
+                }, 7500);
             </script>
         """, unsafe_allow_html=True)
         st.stop()
@@ -454,7 +496,7 @@ if is_admin and admin_mode:
         st.subheader("📡 Live Presence & Prank Controller")
         
         if users_list:
-            now = datetime.utcnow()
+            now = datetime.now()
             for u in users_list:
                 u_email = u["email"]
                 u_name = u["name"]
