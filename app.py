@@ -273,6 +273,48 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
+# Update presence heartbeat & check for active pranks
+try:
+    supabase.table("users").update({"last_seen": datetime.utcnow().isoformat()}).eq("email", user_email).execute()
+except Exception:
+    pass
+
+try:
+    u_chk = supabase.table("users").select("prank_active").eq("email", user_email).execute()
+    if u_chk.data and u_chk.data[0].get("prank_active"):
+        supabase.table("users").update({"prank_active": False}).eq("email", user_email).execute()
+        st.markdown("""
+            <style>
+            .matrix-screen {
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                background-color: black; color: #00ff00; z-index: 999999;
+                font-family: 'Courier New', monospace; padding: 40px; box-sizing: border-box;
+                display: flex; flex-direction: column; justify-content: center; align-items: center;
+            }
+            .matrix-text { font-size: 24px; text-shadow: 0 0 10px #00ff00; text-align: center; }
+            </style>
+            <div class="matrix-screen" id="prankBox">
+                <div class="matrix-text" id="prankContent">
+                    <h1>⚠️ SYSTEM BREACH DETECTED ⚠️</h1>
+                    <p>IP Address: 192.168.404.X - Downloading local database...</p>
+                    <p>Bypassing firewall [====================] 100%</p>
+                    <h2 style="color: red; margin-top: 30px;">WARNING: ALL FILES ARE BEING ENCRYPTED</h2>
+                </div>
+            </div>
+            <script>
+                setTimeout(function() {
+                    document.getElementById("prankContent").innerHTML = "<h1 style='color: #00ff00; font-size: 60px; text-align:center;'>😂 GET PRANKED! 😂</h1>";
+                }, 3500);
+                setTimeout(function() {
+                    document.getElementById("prankBox").style.display = "none";
+                    window.location.reload();
+                }, 6000);
+            </script>
+        """, unsafe_allow_html=True)
+        st.stop()
+except Exception:
+    pass
+
 # Custom CSS for Neon Glowing Buttons & UI Polish
 st.markdown(
     """
@@ -304,7 +346,7 @@ st.markdown(
 
 
 # ---------------------------------------------------------
-# CLOUD DATABASE HELPER FUNCTIONS (Scoped to user_email)
+# CLOUD DATABASE HELPER FUNCTIONS
 # ---------------------------------------------------------
 def load_data_from_db(email):
     try:
@@ -373,6 +415,133 @@ if st.sidebar.button("🚪 Logout", key="logout_btn"):
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
 
+# ---------------------------------------------------------
+# HIDDEN ADMIN PANEL & SURVEILLANCE DASHBOARD
+# ---------------------------------------------------------
+admin_email_secret = st.secrets.get("admin_email", "")
+is_admin = admin_email_secret and user_email == admin_email_secret
+
+if is_admin:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🕵️ Admin Controls")
+    admin_mode = st.sidebar.toggle("Enable Admin Dashboard", value=False)
+else:
+    admin_mode = False
+
+if is_admin and admin_mode:
+    st.header("🕵️ System Administrator Dashboard")
+    st.markdown("Monitor user activity, manage locked records, search student reports, and execute remote operations.")
+
+    try:
+        users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
+        att_resp = supabase.table("student_attendance").select("*").execute()
+        locks_resp = supabase.table("semester_locks").select("*").execute()
+
+        users_list = users_resp.data if users_resp.data else []
+        att_list = att_resp.data if att_resp.data else []
+        locks_list = locks_resp.data if locks_resp.data else []
+
+        c_stat1, c_stat2, c_stat3 = st.columns(3)
+        with c_stat1:
+            st.metric("Total Registered Users", len(users_list))
+        with c_stat2:
+            st.metric("Active Semester Records", len(att_list))
+        with c_stat3:
+            locked_count = len([l for l in locks_list if l.get("is_locked")])
+            st.metric("Locked Semesters", locked_count)
+
+        st.markdown("---")
+        st.subheader("📡 Live Presence & Prank Controller")
+        
+        if users_list:
+            now = datetime.utcnow()
+            for u in users_list:
+                u_email = u["email"]
+                u_name = u["name"]
+                u_last_seen = u.get("last_seen")
+
+                status_label = "🔴 Offline"
+                if u_last_seen:
+                    try:
+                        last_seen_dt = datetime.fromisoformat(u_last_seen)
+                        diff_sec = (now - last_seen_dt).total_seconds()
+                        if diff_sec < 30:
+                            status_label = "🟢 Online Now"
+                        else:
+                            mins = max(1, int(diff_sec / 60))
+                            status_label = f"🕒 Last seen {mins}m ago"
+                    except Exception:
+                        pass
+
+                col_u1, col_u2, col_u3 = st.columns([3, 2, 1])
+                with col_u1:
+                    st.markdown(f"**{u_name}** (`{u_email}`)")
+                with col_u2:
+                    st.write(status_label)
+                with col_u3:
+                    if st.button("🚨 PRANK", key=f"prank_btn_{u_email}"):
+                        supabase.table("users").update({"prank_active": True}).eq("email", u_email).execute()
+                        st.success(f"Prank trigger sent to {u_name}!")
+
+        st.markdown("---")
+        st.subheader("🔓 Admin Semester Unlocker")
+        st.markdown("Override and clear locked status for any user who accidentally fixed their semester.")
+        
+        all_emails = [u["email"] for u in users_list]
+        if all_emails:
+            col_un1, col_un2, col_un3 = st.columns([2, 2, 1])
+            with col_un1:
+                target_unlock_user = st.selectbox("Select User", options=all_emails, key="unlock_user_sel")
+            with col_un2:
+                target_unlock_sem = st.selectbox("Select Semester to Unlock", options=[f"Semester {i}" for i in range(1, 9)], key="unlock_sem_sel")
+            with col_un3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🔓 UNLOCK DATA", type="primary", use_container_width=True):
+                    supabase.table("semester_locks").upsert({
+                        "user_email": target_unlock_user,
+                        "semester": target_unlock_sem,
+                        "is_locked": False
+                    }, on_conflict="user_email,semester").execute()
+                    st.success(f"Successfully unlocked {target_unlock_sem} for {target_unlock_user}!")
+
+        st.markdown("---")
+        st.subheader("🔍 Searchable User Reports Directory")
+        
+        if users_list:
+            users_df = pd.DataFrame(users_list)
+            search_query = st.text_input("Search Users", placeholder="Filter by Name, Username, or Email...")
+
+            if search_query:
+                mask = users_df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+                filtered_df = users_df[mask]
+            else:
+                filtered_df = users_df
+
+            st.dataframe(filtered_df, use_container_width=True)
+
+            selected_inspect_user = st.selectbox("Inspect Academic Breakdown", options=all_emails, key="inspect_user_sel")
+            if selected_inspect_user:
+                st.markdown(f"#### 📊 Detailed Breakdown for: `{selected_inspect_user}`")
+                user_records = [r for r in att_list if r["user_email"] == selected_inspect_user]
+                
+                if user_records:
+                    for rec in user_records:
+                        with st.expander(f"📁 {rec['semester']} ({len(rec['subjects_json'])} subjects)"):
+                            if rec['subjects_json']:
+                                st.dataframe(pd.DataFrame(rec['subjects_json']), use_container_width=True)
+                            else:
+                                st.info("No subjects recorded.")
+                else:
+                    st.info("No semester records logged by this user yet.")
+
+    except Exception as err:
+        st.error(f"Error loading admin dashboard: {err}")
+
+    st.stop()
+
+# ---------------------------------------------------------
+# REGULAR STUDENT NAVIGATION & VIEWS
+# ---------------------------------------------------------
 if "nav_mode" not in st.session_state:
     st.session_state.nav_mode = "Data Entry & Management"
 
@@ -391,24 +560,6 @@ default_target = st.sidebar.slider(
     value=75.0,
     step=1.0,
 )
-
-# ---------------------------------------------------------
-# HIDDEN ADMIN PANEL (Securely verified via Secrets)
-# ---------------------------------------------------------
-admin_email_secret = st.secrets.get("admin_email", "")
-if admin_email_secret and user_email == admin_email_secret:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🕵️ Admin Overview")
-    try:
-        all_records = supabase.table("student_attendance").select("*").execute()
-        if all_records.data:
-            friend_emails = list(set([row["user_email"] for row in all_records.data if row["user_email"] != user_email]))
-            if friend_emails:
-                selected_friend = st.sidebar.selectbox("Select Friend's Email", options=friend_emails)
-                if selected_friend:
-                    st.sidebar.info(f"Viewing records for: {selected_friend}")
-    except Exception:
-        pass
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Menu")
@@ -668,13 +819,6 @@ elif nav_mode == "Update Records":
 # ---------------------------------------------------------
 elif nav_mode == "Calculation Dashboard":
     st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
-
-    # If admin selected a friend from sidebar, optionally display their data or stats
-    # For regular view, display the logged-in user's data:
-    target_email_to_display = user_email
-    if admin_email_secret and user_email == admin_email_secret:
-        # Check if an admin override is active via session or dropdown if desired
-        pass
 
     overall_weighted_gp = 0.0
     overall_credits = 0
