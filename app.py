@@ -299,74 +299,9 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
-# Update presence heartbeat (using IST time) & check for active pranks
+# Update presence heartbeat (using IST time)
 try:
     supabase.table("users").update({"last_seen": get_ist_time().isoformat()}).eq("email", user_email).execute()
-except Exception:
-    pass
-
-try:
-    u_chk = supabase.table("users").select("prank_active").eq("email", user_email).execute()
-    if u_chk.data and u_chk.data[0].get("prank_active"):
-        supabase.table("users").update({"prank_active": False}).eq("email", user_email).execute()
-        st.markdown("""
-            <style>
-            #MainMenu, header, footer {visibility: hidden;}
-            .stApp { background-color: black !important; }
-            </style>
-            <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: black; z-index: 9999999; overflow: hidden;">
-                <canvas id="matrixCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block;"></canvas>
-                <div id="prankBox" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.92); border: 4px solid #ff0000; padding: 45px; text-align: center; border-radius: 12px; box-shadow: 0 0 50px #ff0000; z-index: 10000000; width: 650px;">
-                    <div style="font-size: 38px; color: #ff0000; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0 0 15px #ff0000; margin-bottom: 15px;">⚠️ SYSTEM BREACH DETECTED ⚠️</div>
-                    <div style="font-size: 18px; color: #00ff00; font-family: 'Courier New', monospace; text-shadow: 0 0 8px #00ff00;">Extracting local database & student credentials...</div>
-                </div>
-            </div>
-            <script>
-                const canvas = document.getElementById('matrixCanvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-
-                const characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@#$%^&*()_+';
-                const fontSize = 16;
-                const columns = canvas.width / fontSize;
-                const drops = [];
-                for (let i = 0; i < columns; i++) {
-                    drops[i] = 1;
-                }
-
-                function drawMatrix() {
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#00ff00';
-                    ctx.font = 'bold ' + fontSize + 'px monospace';
-                    for (let i = 0; i < drops.length; i++) {
-                        const text = characters.charAt(Math.floor(Math.random() * characters.length));
-                        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-                        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
-                            drops[i] = 0;
-                        }
-                        drops[i]++;
-                    }
-                }
-                const matrixInterval = setInterval(drawMatrix, 25);
-
-                // Switch to GET PRANKED! after 4 seconds
-                setTimeout(function() {
-                    const box = document.getElementById('prankBox');
-                    box.style.borderColor = '#00ff00';
-                    box.style.boxShadow = '0 0 60px #00ff00';
-                    box.innerHTML = "<h1 style='color: #00ff00; font-size: 65px; font-family: monospace; text-shadow: 0 0 25px #00ff00; margin: 0;'>😂 GET PRANKED! 😂</h1><p style='color: white; font-size: 20px; font-family: monospace; margin-top: 20px; font-weight: bold;'>Your files are completely safe. Nice try though!</p>";
-                }, 4000);
-
-                // Reload page after 8 seconds total
-                setTimeout(function() {
-                    clearInterval(matrixInterval);
-                    window.location.reload();
-                }, 8000);
-            </script>
-        """, unsafe_allow_html=True)
-        st.stop()
 except Exception:
     pass
 
@@ -508,7 +443,7 @@ if is_admin and admin_mode:
             st.metric("Locked Semesters", locked_count)
 
         st.markdown("---")
-        st.subheader("📡 Live Presence & Prank Controller")
+        st.subheader("📡 Live Presence Monitor")
         
         if users_list:
             now = get_ist_time()
@@ -521,8 +456,11 @@ if is_admin and admin_mode:
                 if u_last_seen:
                     try:
                         last_seen_dt = datetime.fromisoformat(u_last_seen)
+                        # Ensure timezone awareness for subtraction comparison
+                        if last_seen_dt.tzinfo is None:
+                            last_seen_dt = last_seen_dt.replace(tzinfo=IST)
                         diff_sec = (now - last_seen_dt).total_seconds()
-                        if diff_sec < 30:
+                        if diff_sec < 45:
                             status_label = "🟢 Online Now"
                         else:
                             mins = max(1, int(diff_sec / 60))
@@ -530,15 +468,11 @@ if is_admin and admin_mode:
                     except Exception:
                         pass
 
-                col_u1, col_u2, col_u3 = st.columns([3, 2, 1])
+                col_u1, col_u2 = st.columns([3, 2])
                 with col_u1:
                     st.markdown(f"**{u_name}** (`{u_email}`)")
                 with col_u2:
                     st.write(status_label)
-                with col_u3:
-                    if st.button("🚨 PRANK", key=f"prank_btn_{u_email}"):
-                        supabase.table("users").update({"prank_active": True}).eq("email", u_email).execute()
-                        st.success(f"Prank trigger sent to {u_name}!")
 
         st.markdown("---")
         st.subheader("🔓 Admin Semester Unlocker")
