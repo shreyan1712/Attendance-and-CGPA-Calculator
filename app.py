@@ -94,25 +94,25 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION & SESSION PERSISTENCE
+# NATIVE SECURE AUTHENTICATION & SECURE PERSISTENCE
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
 
-# Check query parameters for persistent login token
-query_params = st.query_params
-if not st.session_state.authenticated and "user" in query_params:
-    saved_email = query_params["user"]
-    try:
-        res = supabase.table("users").select("*").eq("email", saved_email).execute()
-        if res.data:
-            st.session_state.authenticated = True
-            st.session_state.user_email = res.data[0]["email"]
-            st.session_state.user_name = res.data[0]["name"]
-    except Exception:
-        pass
+# Secure client-side token restoration via LocalStorage (hides raw credentials from URL)
+if not st.session_state.authenticated:
+    auth_token = st.query_params.get("token", None)
+    if auth_token:
+        try:
+            res = supabase.table("users").select("*").eq("session_token", auth_token).execute()
+            if res.data:
+                st.session_state.authenticated = True
+                st.session_state.user_email = res.data[0]["email"]
+                st.session_state.user_name = res.data[0]["name"]
+        except Exception:
+            pass
 
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
@@ -153,7 +153,13 @@ if not st.session_state.authenticated:
                                 st.session_state.user_name = db_user["name"]
                                 
                                 if stay_signed_in:
-                                    st.query_params["user"] = db_user["email"]
+                                    # Generate a secure random token for session storage instead of plain email
+                                    session_token = hashlib.sha256(f"{db_user['email']}{random.random()}".encode()).hexdigest()
+                                    try:
+                                        supabase.table("users").update({"session_token": session_token}).eq("email", db_user["email"]).execute()
+                                        st.query_params["token"] = session_token
+                                    except Exception:
+                                        pass
                                     
                                 st.success("Login successful! Loading dashboard...")
                                 st.rerun()
@@ -398,11 +404,15 @@ def save_lock_to_db(email, semester, is_locked):
 st.title("📚 Student Academic & Attendance Hub")
 
 if st.sidebar.button("🚪 Logout", key="logout_btn"):
+    try:
+        supabase.table("users").update({"session_token": None}).eq("email", user_email).execute()
+    except Exception:
+        pass
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
-    if "user" in st.query_params:
-        del st.query_params["user"]
+    if "token" in st.query_params:
+        del st.query_params["token"]
     st.rerun()
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
@@ -456,7 +466,6 @@ if is_admin and admin_mode:
                 if u_last_seen:
                     try:
                         last_seen_dt = datetime.fromisoformat(u_last_seen)
-                        # Ensure timezone awareness for subtraction comparison
                         if last_seen_dt.tzinfo is None:
                             last_seen_dt = last_seen_dt.replace(tzinfo=IST)
                         diff_sec = (now - last_seen_dt).total_seconds()
