@@ -1,5 +1,7 @@
+import base64
 from datetime import datetime, date, timedelta, timezone
-import hashlib
+-import hashlib
+import hmac
 import math
 import random
 import pandas as pd
@@ -37,6 +39,28 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 def get_ist_time():
     return datetime.now(IST)
+
+
+# Helper function for secure stateless session tokens (Requires zero DB schema changes)
+def generate_secure_token(email):
+    secret = st.secrets.get("SESSION_SECRET", "hackathon_secret_salt_123")
+    sig = hmac.new(secret.encode(), email.encode(), hashlib.sha256).hexdigest()[:16]
+    return base64.urlsafe_b64encode(f"{email}:{sig}".encode()).decode()
+
+
+def verify_secure_token(token):
+    try:
+        secret = st.secrets.get("SESSION_SECRET", "hackathon_secret_salt_123")
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        email, sig = decoded.split(":")
+        expected_sig = hmac.new(secret.encode(), email.encode(), hashlib.sha256).hexdigest()[:16]
+        if hmac.compare_digest(sig, expected_sig):
+            res = supabase.table("users").select("*").eq("email", email).execute()
+            if res.data:
+                return res.data[0]
+    except Exception:
+        pass
+    return None
 
 
 # Helper function to send OTP & Emails via API
@@ -101,18 +125,15 @@ if "authenticated" not in st.session_state:
     st.session_state.user_email = None
     st.session_state.user_name = None
 
-# Secure client-side token restoration via LocalStorage (hides raw credentials from URL)
+# Secure stateless token restoration on page reload
 if not st.session_state.authenticated:
     auth_token = st.query_params.get("token", None)
     if auth_token:
-        try:
-            res = supabase.table("users").select("*").eq("session_token", auth_token).execute()
-            if res.data:
-                st.session_state.authenticated = True
-                st.session_state.user_email = res.data[0]["email"]
-                st.session_state.user_name = res.data[0]["name"]
-        except Exception:
-            pass
+        user_row = verify_secure_token(auth_token)
+        if user_row:
+            st.session_state.authenticated = True
+            st.session_state.user_email = user_row["email"]
+            st.session_state.user_name = user_row["name"]
 
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
@@ -153,13 +174,8 @@ if not st.session_state.authenticated:
                                 st.session_state.user_name = db_user["name"]
                                 
                                 if stay_signed_in:
-                                    # Generate a secure random token for session storage instead of plain email
-                                    session_token = hashlib.sha256(f"{db_user['email']}{random.random()}".encode()).hexdigest()
-                                    try:
-                                        supabase.table("users").update({"session_token": session_token}).eq("email", db_user["email"]).execute()
-                                        st.query_params["token"] = session_token
-                                    except Exception:
-                                        pass
+                                    token = generate_secure_token(db_user["email"])
+                                    st.query_params["token"] = token
                                     
                                 st.success("Login successful! Loading dashboard...")
                                 st.rerun()
@@ -404,10 +420,6 @@ def save_lock_to_db(email, semester, is_locked):
 st.title("📚 Student Academic & Attendance Hub")
 
 if st.sidebar.button("🚪 Logout", key="logout_btn"):
-    try:
-        supabase.table("users").update({"session_token": None}).eq("email", user_email).execute()
-    except Exception:
-        pass
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
@@ -691,6 +703,21 @@ elif nav_mode == "Update Records":
             updated_subjects = []
             data_changed = False
 
+            @st.dialog("⚠️ Confirm Subject Deletion")
+            def confirm_delete_dialog(sem_name, sub_index, sub_code, sub_name, subjects_list):
+                st.markdown(f"Are you sure you want to delete **[{sub_code}] {sub_name}** from `{sem_name}`?")
+                col_y, col_n = st.columns(2)
+                with col_y:
+                    if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
+                        subjects_list.pop(sub_index)
+                        st.session_state.all_semesters[sem_name] = subjects_list
+                        save_data_to_db(user_email, sem_name, subjects_list)
+                        st.success(f"Deleted {sub_code} successfully!")
+                        st.rerun()
+                with col_n:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.rerun()
+
             for i, subj in enumerate(current_subjects):
                 existing_date_str = subj.get(
                     "attendance_date", str(date.today())
@@ -701,9 +728,8 @@ elif nav_mode == "Update Records":
                 ):
                     col_del, _ = st.columns([1, 4])
                     with col_del:
-                        delete_clicked = st.button(
-                            "🗑️ Delete", key=f"del_{selected_semester}_{i}"
-                        )
+                        if st.button("🗑️ Delete", key=f"del_{selected_semester}_{i}"):
+                            confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
 
                     c1, c2, c3 = st.columns(3)
                     with c1:
@@ -752,34 +778,31 @@ elif nav_mode == "Update Records":
                             key=f"gp_{selected_semester}_{i}",
                         )
 
-                    if not delete_clicked:
-                        field_changed = (
-                            code.upper() != subj["code"]
-                            or name != subj["name"]
-                            or credits != subj["credits"]
-                            or attended != subj["attended"]
-                            or conducted != subj["conducted"]
-                            or endterm != subj.get("grade_point", 0.0)
-                        )
-                        final_date = (
-                            str(date.today())
-                            if field_changed
-                            else existing_date_str
-                        )
+                    field_changed = (
+                        code.upper() != subj["code"]
+                        or name != subj["name"]
+                        or credits != subj["credits"]
+                        or attended != subj["attended"]
+                        or conducted != subj["conducted"]
+                        or endterm != subj.get("grade_point", 0.0)
+                    )
+                    final_date = (
+                        str(date.today())
+                        if field_changed
+                        else existing_date_str
+                    )
 
-                        updated_subjects.append(
-                            {
-                                "code": code.upper(),
-                                "name": name,
-                                "credits": credits,
-                                "attended": attended,
-                                "conducted": conducted,
-                                "grade_point": endterm,
-                                "attendance_date": final_date,
-                            }
-                        )
-                    else:
-                        data_changed = True
+                    updated_subjects.append(
+                        {
+                            "code": code.upper(),
+                            "name": name,
+                            "credits": credits,
+                            "attended": attended,
+                            "conducted": conducted,
+                            "grade_point": endterm,
+                            "attendance_date": final_date,
+                        }
+                    )
 
             if updated_subjects != current_subjects:
                 data_changed = True
@@ -846,11 +869,9 @@ elif nav_mode == "Calculation Dashboard":
                 if pct >= default_target:
                     max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
                     current_status = f"Safe (Can skip {max_skips})"
-                    target_status = "Target Maintained"
                 else:
                     needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
                     current_status = f"Short (Need next {max(1, needed_consecutive)})"
-                    target_status = f"Need next {max(1, needed_consecutive)} classes"
 
                 att_data.append(
                     {
@@ -862,7 +883,6 @@ elif nav_mode == "Calculation Dashboard":
                         "Conducted": cond,
                         "Percentage": round(pct, 2),
                         "Current Status": current_status,
-                        "Target Projection": target_status,
                         "Grade Point": subj["grade_point"],
                         "Last Updated": att_date,
                     }
