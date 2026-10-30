@@ -119,46 +119,55 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION & BROWSER LOCALSTORAGE PERSISTENCE
+# NATIVE SECURE AUTHENTICATION & COOKIE PERSISTENCE BRIDGE
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
 
-# Check query params for initial token bridge from JS localStorage
+# 1. Check if token came via query parameters (bridge from JS cookie reader)
 if not st.session_state.authenticated:
-    auth_token = st.query_params.get("token", None)
+    auth_token = st.query_params.get("session_token", None)
     if auth_token:
         user_row = verify_secure_token(auth_token)
         if user_row:
             st.session_state.authenticated = True
             st.session_state.user_email = user_row["email"]
             st.session_state.user_name = user_row["name"]
-            # Clean up token from URL bar immediately so it's a completely clean URL!
             st.query_params.clear()
 
-# Invisible browser localStorage manager component
+# 2. Invisible component to read/write browser cookies securely behind the scenes
 if not st.session_state.authenticated:
-    local_storage_code = """
+    cookie_bridge_code = """
     <script>
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+    
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
+    const urlToken = urlParams.get('session_token');
     
     if (urlToken) {
-        localStorage.setItem('hub_session_token', urlToken);
-        // Clean URL without reloading
+        // Save cookie for 30 days securely
+        const d = new Date();
+        d.setTime(d.getTime() + (30*24*60*60*1000));
+        document.cookie = "hub_session=" + urlToken + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
+        
+        // Clean URL immediately
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
     } else {
-        const savedToken = localStorage.getItem('hub_session_token');
-        if (savedToken && !window.location.search.includes('token=')) {
-            window.location.search = '?token=' + encodeURIComponent(savedToken);
+        const savedToken = getCookie('hub_session');
+        if (savedToken && !window.location.search.includes('session_token=')) {
+            window.location.search = '?session_token=' + encodeURIComponent(savedToken);
         }
     }
     </script>
     """
-    components.html(local_storage_code, height=0)
+    components.html(cookie_bridge_code, height=0)
 
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
@@ -176,7 +185,7 @@ if not st.session_state.authenticated:
         with st.form("login_form"):
             login_user = st.text_input("Username")
             login_pass = st.text_input("Password", type="password")
-            stay_signed_in = st.checkbox("Stay signed in (for 30 days)", value=True)
+            stay_signed_in = st.checkbox("Stay signed in", value=True)
             submit_login = st.form_submit_button("Log In", type="primary")
 
             if submit_login:
@@ -200,22 +209,26 @@ if not st.session_state.authenticated:
                                 
                                 token = generate_secure_token(db_user["email"])
                                 if stay_signed_in:
-                                    # Inject JS to save token in browser localStorage permanently
-                                    set_storage_script = f"""
+                                    # Inject JS to set browser cookie and trigger clean reload
+                                    set_cookie_script = f"""
                                     <script>
-                                    localStorage.setItem('hub_session_token', '{token}');
+                                    const d = new Date();
+                                    d.setTime(d.getTime() + (30*24*60*60*1000));
+                                    document.cookie = "hub_session={token};expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
                                     window.location.search = '';
                                     </script>
                                     """
-                                    components.html(set_storage_script, height=0)
+                                    components.html(set_cookie_script, height=0)
                                     st.success("Login successful! Loading dashboard...")
                                     st.rerun()
                                 else:
-                                    # Clear stored token if unchecked
-                                    clear_storage_script = """
-                                    <script>localStorage.removeItem('hub_session_token');</script>
+                                    # Clear cookie if unchecked
+                                    clear_cookie_script = """
+                                    <script>
+                                    document.cookie = "hub_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;";
+                                    </script>
                                     """
-                                    components.html(clear_storage_script, height=0)
+                                    components.html(clear_cookie_script, height=0)
                                     st.success("Login successful! Loading dashboard...")
                                     st.rerun()
                             else:
@@ -459,10 +472,10 @@ def save_lock_to_db(email, semester, is_locked):
 st.title("📚 Student Academic & Attendance Hub")
 
 if st.sidebar.button("🚪 Logout", key="logout_btn"):
-    # Clear local storage token via browser injection on logout
+    # Clear cookie on logout
     logout_script = """
     <script>
-    localStorage.removeItem('hub_session_token');
+    document.cookie = "hub_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;";
     window.location.search = '';
     </script>
     """
