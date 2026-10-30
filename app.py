@@ -584,6 +584,67 @@ if is_admin and admin_mode:
             except Exception as backup_err:
                 st.error(f"❌ Failed to generate system backup: {backup_err}")
 
+        # ---------------------------------------------------------
+        # DISASTER RECOVERY & DATA RESTORATION FEATURE
+        # ---------------------------------------------------------
+        st.markdown("---")
+        st.subheader("♻️ Disaster Recovery & Data Restoration")
+        st.markdown("Upload your previously downloaded master JSON backup file to restore all users, attendance records, assignments, and exams into this database.")
+
+        uploaded_backup_file = st.file_uploader("Choose Backup JSON File", type=["json"])
+
+        if uploaded_backup_file is not None:
+            if st.button("🚀 RESTORE DATABASE FROM BACKUP", type="primary"):
+                try:
+                    backup_content = json.load(uploaded_backup_file)
+
+                    # 1. Restore Users
+                    users_data = backup_content.get("users", [])
+                    if users_data:
+                        for u in users_data:
+                            u.pop("id", None)
+                        supabase.table("users").upsert(users_data, on_conflict="email").execute()
+
+                    # 2. Restore Attendance
+                    att_data = backup_content.get("student_attendance", [])
+                    if att_data:
+                        for row in att_data:
+                            row.pop("id", None)
+                        supabase.table("student_attendance").upsert(att_data, on_conflict="user_email,semester").execute()
+
+                    # 3. Restore Semester Locks
+                    locks_data = backup_content.get("semester_locks", [])
+                    if locks_data:
+                        for row in locks_data:
+                            row.pop("id", None)
+                        supabase.table("semester_locks").upsert(locks_data, on_conflict="user_email,semester").execute()
+
+                    # 4. Restore Assignments
+                    asgn_data = backup_content.get("student_assignments", [])
+                    if asgn_data:
+                        for row in asgn_data:
+                            row.pop("id", None)
+                        supabase.table("student_assignments").upsert(asgn_data).execute()
+
+                    # 5. Restore Exams
+                    exams_data = backup_content.get("student_exams", [])
+                    if exams_data:
+                        for row in exams_data:
+                            row.pop("id", None)
+                        supabase.table("student_exams").upsert(exams_data).execute()
+
+                    # 6. Restore Admin Messages
+                    msgs_data = backup_content.get("admin_messages", [])
+                    if msgs_data:
+                        for row in msgs_data:
+                            row.pop("id", None)
+                        supabase.table("admin_messages").upsert(msgs_data).execute()
+
+                    st.success("🎉 Database successfully restored from backup! All user data, grades, and records are back.")
+                    st.balloons()
+                except Exception as restore_err:
+                    st.error(f"❌ Failed to restore database: {restore_err}")
+
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
         st.markdown("Send targeted messages to all students or specific individual accounts with read confirmation tracking.")
