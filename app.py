@@ -437,6 +437,30 @@ def save_exam_to_db(email, semester, subject_code, exam_type, exam_date_str, syl
         st.error(f"Error saving exam: {e}")
 
 
+# Helpers for Timetable
+def load_timetable_from_db(email, semester):
+    try:
+        resp = supabase.table("student_timetables").select("*").eq("user_email", email).eq("semester", semester).execute()
+        return resp.data if resp.data else []
+    except Exception:
+        return []
+
+
+def save_timetable_to_db(email, semester, day_of_week, subject_code, start_time_str, end_time_str, room_number):
+    try:
+        supabase.table("student_timetables").insert({
+            "user_email": email,
+            "semester": semester,
+            "day_of_week": day_of_week,
+            "subject_code": subject_code,
+            "start_time": start_time_str,
+            "end_time": end_time_str,
+            "room_number": room_number
+        }).execute()
+    except Exception as e:
+        st.error(f"Error saving timetable entry: {e}")
+
+
 # ---------------------------------------------------------
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
@@ -555,11 +579,11 @@ if is_admin and admin_mode:
         # ---------------------------------------------------------
         st.markdown("---")
         st.subheader("💾 Master System Backup & Data Redundancy")
-        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, and broadcast messages.")
+        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, timetables, and broadcast messages.")
 
         if st.button("📥 DOWNLOAD FULL SYSTEM BACKUP (JSON)", type="primary"):
             try:
-                # Fetch all records across every core database table
+                # Fetch all records across every core database table including timetables
                 backup_data = {
                     "backup_timestamp": datetime.now(timezone.utc).isoformat(),
                     "users": supabase.table("users").select("*").execute().data,
@@ -567,6 +591,7 @@ if is_admin and admin_mode:
                     "semester_locks": supabase.table("semester_locks").select("*").execute().data,
                     "student_assignments": supabase.table("student_assignments").select("*").execute().data,
                     "student_exams": supabase.table("student_exams").select("*").execute().data,
+                    "student_timetables": supabase.table("student_timetables").select("*").execute().data,
                     "admin_messages": supabase.table("admin_messages").select("*").execute().data,
                 }
                 
@@ -696,8 +721,8 @@ is_locked = st.session_state.sem_locks.get(selected_semester, False)
 current_subjects = st.session_state.all_semesters[selected_semester]
 
 # TOP-LEVEL MODULE TABS
-main_tab_attendance, main_tab_assignments, main_tab_exams = st.tabs([
-    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table"
+main_tab_attendance, main_tab_assignments, main_tab_exams, main_tab_timetable = st.tabs([
+    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table", "⏰ Daily Timetable"
 ])
 
 # =========================================================
@@ -1197,3 +1222,87 @@ with main_tab_exams:
                         st.rerun()
         else:
             st.info("No exam schedules logged for this semester yet.")
+
+# =========================================================
+# TAB 4: DAILY TIMETABLE
+# =========================================================
+with main_tab_timetable:
+    st.header(f"⏰ Daily Class Timetable ({selected_semester})")
+    
+    if not current_subjects:
+        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+    else:
+        subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
+        
+        with st.expander("➕ Add Class Slot to Timetable", expanded=True):
+            with st.form("add_timetable_form", clear_on_submit=True):
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    tt_day = st.selectbox("Day of the Week", options=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+                    tt_sub = st.selectbox("Select Subject", options=subject_options)
+                with col_t2:
+                    tt_start = st.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
+                    tt_end = st.time_input("End Time", value=datetime.strptime("10:00", "%H:%M").time())
+                
+                tt_room = st.text_input("Room / Lecture Hall (Optional)", placeholder="e.g. LH-302 or Lab-2")
+                submit_tt = st.form_submit_button("Add to Timetable", type="primary")
+                
+                if submit_tt:
+                    sub_code = tt_sub.split("]")[0].replace("[", "")
+                    start_str = tt_start.strftime("%I:%M %p")
+                    end_str = tt_end.strftime("%I:%M %p")
+                    
+                    save_timetable_to_db(user_email, selected_semester, tt_day, sub_code, start_str, end_str, tt_room.strip() if tt_room else "N/A")
+                    st.success(f"Added {sub_code} to {tt_day}'s timetable!")
+                    st.rerun()
+
+        st.markdown("---")
+        
+        # Get current day of the week in IST
+        current_day_name = get_ist_time().strftime("%A")
+        
+        st.subheader(f"📅 Today's Schedule ({current_day_name})")
+        
+        all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
+        
+        # Filter entries for today
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        
+        if today_entries:
+            for entry in today_entries:
+                with st.container():
+                    col_card1, col_card2, col_card3 = st.columns([2, 3, 1])
+                    with col_card1:
+                        st.markdown(f"🕒 **{entry['start_time']} - {entry['end_time']}**")
+                    with col_card2:
+                        st.markdown(f"📚 **[{entry['subject_code']}]** | 📍 Room: `{entry['room_number']}`")
+                    with col_card3:
+                        if st.button("🗑️ Remove", key=f"del_tt_{entry['id']}"):
+                            supabase.table("student_timetables").delete().eq("id", entry['id']).execute()
+                            st.rerun()
+                    st.divider()
+        else:
+            st.info(f"🎉 No classes scheduled for today ({current_day_name}) in {selected_semester}!")
+
+        st.markdown("---")
+        st.subheader("🗓️ Full Weekly Timetable Overview")
+        
+        if all_timetable_entries:
+            days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            
+            for day in days_order:
+                day_slots = [t for t in all_timetable_entries if t.get("day_of_week") == day]
+                if day_slots:
+                    with st.expander(f"📌 {day} ({len(day_slots)} classes)"):
+                        for ds in day_slots:
+                            col_d1, col_d2, col_d3 = st.columns([2, 3, 1])
+                            with col_d1:
+                                st.write(f"⏰ {ds['start_time']} - {ds['end_time']}")
+                            with col_d2:
+                                st.write(f"📖 **[{ds['subject_code']}]** (Room: {ds['room_number']})")
+                            with col_d3:
+                                if st.button("🗑️ Delete", key=f"del_week_tt_{ds['id']}"):
+                                    supabase.table("student_timetables").delete().eq("id", ds['id']).execute()
+                                    st.rerun()
+        else:
+            st.info("No timetable entries logged for this semester yet.")
