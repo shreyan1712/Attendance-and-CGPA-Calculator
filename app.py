@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, date, timedelta, timezone
 import hashlib
 import hmac
+import json
 import math
 import random
 import pandas as pd
@@ -549,6 +550,40 @@ if is_admin and admin_mode:
             locked_count = len([l for l in locks_list if l.get("is_locked")])
             st.metric("Locked Semesters", locked_count)
 
+        # ---------------------------------------------------------
+        # MASTER SYSTEM BACKUP FEATURE
+        # ---------------------------------------------------------
+        st.markdown("---")
+        st.subheader("💾 Master System Backup & Data Redundancy")
+        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, and broadcast messages.")
+
+        if st.button("📥 DOWNLOAD FULL SYSTEM BACKUP (JSON)", type="primary"):
+            try:
+                # Fetch all records across every core database table
+                backup_data = {
+                    "backup_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "users": supabase.table("users").select("*").execute().data,
+                    "student_attendance": supabase.table("student_attendance").select("*").execute().data,
+                    "semester_locks": supabase.table("semester_locks").select("*").execute().data,
+                    "student_assignments": supabase.table("student_assignments").select("*").execute().data,
+                    "student_exams": supabase.table("student_exams").select("*").execute().data,
+                    "admin_messages": supabase.table("admin_messages").select("*").execute().data,
+                }
+                
+                json_string = json.dumps(backup_data, indent=4, default=str)
+                file_name = f"student_hub_full_backup_{date.today()}.json"
+
+                st.download_button(
+                    label="💾 Click Here to Save Backup File to Computer",
+                    data=json_string,
+                    file_name=file_name,
+                    mime="application/json",
+                    type="primary"
+                )
+                st.success("✅ Backup generated successfully! Click the button above to save the file.")
+            except Exception as backup_err:
+                st.error(f"❌ Failed to generate system backup: {backup_err}")
+
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
         st.markdown("Send targeted messages to all students or specific individual accounts with read confirmation tracking.")
@@ -596,7 +631,6 @@ if is_admin and admin_mode:
                     try:
                         last_seen_dt = parse_db_time(u_last_seen)
                         diff_sec = (now_utc - last_seen_dt).total_seconds()
-                        # Tightened threshold to 20 seconds for responsive offline switching
                         if 0 <= diff_sec < 20:
                             status_label = "🟢 Online Now"
                         elif diff_sec >= 20:
