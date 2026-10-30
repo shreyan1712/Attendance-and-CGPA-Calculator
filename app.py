@@ -542,12 +542,15 @@ if is_admin and admin_mode:
                 if u_last_seen:
                     try:
                         last_seen_dt = parse_db_time(u_last_seen)
+                        # Fix: explicitly calculate absolute seconds difference
                         diff_sec = (now - last_seen_dt).total_seconds()
-                        if diff_sec < 45:
+                        if 0 <= diff_sec < 45:
                             status_label = "🟢 Online Now"
-                        else:
+                        elif diff_sec >= 45:
                             mins = max(1, int(diff_sec / 60))
                             status_label = f"🕒 Last seen {mins}m ago"
+                        else:
+                            status_label = "🔴 Offline"
                     except Exception:
                         pass
 
