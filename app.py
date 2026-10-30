@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from supabase import create_client
 
 st.set_page_config(
@@ -41,7 +42,7 @@ def get_ist_time():
     return datetime.now(IST)
 
 
-# Helper function for secure stateless session tokens (Requires zero DB schema changes)
+# Helper function for secure session tokens
 def generate_secure_token(email):
     secret = st.secrets.get("SESSION_SECRET", "hackathon_secret_salt_123")
     sig = hmac.new(secret.encode(), email.encode(), hashlib.sha256).hexdigest()[:16]
@@ -118,14 +119,14 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION & SECURE PERSISTENCE
+# NATIVE SECURE AUTHENTICATION & BROWSER LOCALSTORAGE PERSISTENCE
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
 
-# Secure stateless token restoration on page reload
+# Check query params for initial token bridge from JS localStorage
 if not st.session_state.authenticated:
     auth_token = st.query_params.get("token", None)
     if auth_token:
@@ -134,6 +135,30 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True
             st.session_state.user_email = user_row["email"]
             st.session_state.user_name = user_row["name"]
+            # Clean up token from URL bar immediately so it's a completely clean URL!
+            st.query_params.clear()
+
+# Invisible browser localStorage manager component
+if not st.session_state.authenticated:
+    local_storage_code = """
+    <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    
+    if (urlToken) {
+        localStorage.setItem('hub_session_token', urlToken);
+        // Clean URL without reloading
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+    } else {
+        const savedToken = localStorage.getItem('hub_session_token');
+        if (savedToken && !window.location.search.includes('token=')) {
+            window.location.search = '?token=' + encodeURIComponent(savedToken);
+        }
+    }
+    </script>
+    """
+    components.html(local_storage_code, height=0)
 
 if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
@@ -151,7 +176,7 @@ if not st.session_state.authenticated:
         with st.form("login_form"):
             login_user = st.text_input("Username")
             login_pass = st.text_input("Password", type="password")
-            stay_signed_in = st.checkbox("Stay signed in", value=True)
+            stay_signed_in = st.checkbox("Stay signed in (for 30 days)", value=True)
             submit_login = st.form_submit_button("Log In", type="primary")
 
             if submit_login:
@@ -173,12 +198,26 @@ if not st.session_state.authenticated:
                                 st.session_state.user_email = db_user["email"]
                                 st.session_state.user_name = db_user["name"]
                                 
+                                token = generate_secure_token(db_user["email"])
                                 if stay_signed_in:
-                                    token = generate_secure_token(db_user["email"])
-                                    st.query_params["token"] = token
-                                    
-                                st.success("Login successful! Loading dashboard...")
-                                st.rerun()
+                                    # Inject JS to save token in browser localStorage permanently
+                                    set_storage_script = f"""
+                                    <script>
+                                    localStorage.setItem('hub_session_token', '{token}');
+                                    window.location.search = '';
+                                    </script>
+                                    """
+                                    components.html(set_storage_script, height=0)
+                                    st.success("Login successful! Loading dashboard...")
+                                    st.rerun()
+                                else:
+                                    # Clear stored token if unchecked
+                                    clear_storage_script = """
+                                    <script>localStorage.removeItem('hub_session_token');</script>
+                                    """
+                                    components.html(clear_storage_script, height=0)
+                                    st.success("Login successful! Loading dashboard...")
+                                    st.rerun()
                             else:
                                 st.error("Incorrect password.")
                         else:
@@ -420,11 +459,17 @@ def save_lock_to_db(email, semester, is_locked):
 st.title("📚 Student Academic & Attendance Hub")
 
 if st.sidebar.button("🚪 Logout", key="logout_btn"):
+    # Clear local storage token via browser injection on logout
+    logout_script = """
+    <script>
+    localStorage.removeItem('hub_session_token');
+    window.location.search = '';
+    </script>
+    """
+    components.html(logout_script, height=0)
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
-    if "token" in st.query_params:
-        del st.query_params["token"]
     st.rerun()
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
