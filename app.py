@@ -376,6 +376,51 @@ def save_lock_to_db(email, semester, is_locked):
     ).execute()
 
 
+# Helpers for Assignments & Exams
+def load_assignments_from_db(email, semester):
+    try:
+        resp = supabase.table("student_assignments").select("*").eq("user_email", email).eq("semester", semester).execute()
+        return resp.data if resp.data else []
+    except Exception:
+        return []
+
+
+def save_assignment_to_db(email, semester, subject_code, title, due_date_str, file_url=None):
+    try:
+        supabase.table("student_assignments").insert({
+            "user_email": email,
+            "semester": semester,
+            "subject_code": subject_code,
+            "title": title,
+            "due_date": due_date_str,
+            "file_url": file_url
+        }).execute()
+    except Exception as e:
+        st.error(f"Error saving assignment: {e}")
+
+
+def load_exams_from_db(email, semester):
+    try:
+        resp = supabase.table("student_exams").select("*").eq("user_email", email).eq("semester", semester).execute()
+        return resp.data if resp.data else []
+    except Exception:
+        return []
+
+
+def save_exam_to_db(email, semester, subject_code, exam_type, exam_date_str, syllabus):
+    try:
+        supabase.table("student_exams").insert({
+            "user_email": email,
+            "semester": semester,
+            "subject_code": subject_code,
+            "exam_type": exam_type,
+            "exam_date": exam_date_str,
+            "syllabus": syllabus
+        }).execute()
+    except Exception as e:
+        st.error(f"Error saving exam: {e}")
+
+
 # ---------------------------------------------------------
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
@@ -388,6 +433,22 @@ if st.sidebar.button("🚪 Logout", key="logout_btn"):
     st.rerun()
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
+
+# Check for Admin Messages directed to this user
+try:
+    msg_resp = supabase.table("admin_messages").select("*").execute()
+    if msg_resp.data:
+        for msg in msg_resp.data:
+            t_email = msg.get("target_email")
+            read_list = msg.get("read_by") if msg.get("read_by") else []
+            if (t_email == "ALL" or t_email == user_email) and user_email not in read_list:
+                st.info(f"📢 **ADMIN ANNOUNCEMENT:** {msg['message_text']}")
+                if st.button("✅ Mark as Read & Clear", key=f"read_msg_{msg['id']}"):
+                    read_list.append(user_email)
+                    supabase.table("admin_messages").update({"read_by": read_list}).eq("id", msg['id']).execute()
+                    st.rerun()
+except Exception:
+    pass
 
 # ---------------------------------------------------------
 # HIDDEN ADMIN PANEL & SURVEILLANCE DASHBOARD
@@ -404,7 +465,7 @@ else:
 
 if is_admin and admin_mode:
     st.header("🕵️ System Administrator Dashboard")
-    st.markdown("Monitor user activity, manage locked records, search student reports, and execute remote operations.")
+    st.markdown("Monitor user activity, purge accounts, broadcast announcements, manage locked records, and inspect reports.")
 
     try:
         users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
@@ -425,10 +486,74 @@ if is_admin and admin_mode:
             st.metric("Locked Semesters", locked_count)
 
         st.markdown("---")
+        st.subheader("📢 Direct Messaging & Broadcast Hub")
+        st.markdown("Send targeted messages to all students or specific individual accounts with read confirmation tracking.")
+        
+        all_emails = [u["email"] for u in users_list]
+        msg_target = st.selectbox("Select Target Audience", options=["ALL"] + all_emails)
+        msg_text = st.text_area("Type Announcement / Message Text")
+        
+        if st.button("🚀 SEND ANNOUNCEMENT", type="primary"):
+            if msg_text.strip():
+                supabase.table("admin_messages").insert({
+                    "sender_email": user_email,
+                    "target_email": msg_target,
+                    "message_text": msg_text.strip(),
+                    "read_by": []
+                }).execute()
+                st.success("Message dispatched successfully!")
+                st.rerun()
+            else:
+                st.error("Message text cannot be empty.")
+
+        # Display Message Read Tracker
+        try:
+            sent_msgs = supabase.table("admin_messages").select("*").execute()
+            if sent_msgs.data:
+                st.markdown("##### Sent Messages Status Tracker")
+                for s_m in sent_msgs.data:
+                    readers = ", ".join(s_m.get("read_by", [])) if s_m.get("read_by") else "None yet"
+                    st.caption(f"🆔 **Message #{s_m['id']}** to `{s_m['target_email']}`: '{s_m['message_text']}' | **Read by:** {readers}")
+        except Exception:
+            pass
+
+        st.markdown("---")
+        st.subheader("🗑️ Bulk Account & Inactive User Eraser")
+        st.markdown("Permanently purge test accounts, inactive students, or selected user profiles from database.")
+        
+        now = get_ist_time()
+        inactive_candidates = []
+        for u in users_list:
+            u_ls = u.get("last_seen")
+            if not u_ls:
+                inactive_candidates.append(u["email"])
+            else:
+                try:
+                    dt = datetime.fromisoformat(u_ls)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=IST)
+                    if (now - dt).total_seconds() > (7 * 24 * 3600): # 7 days inactive
+                        inactive_candidates.append(u["email"])
+                except Exception:
+                    inactive_candidates.append(u["email"])
+
+        selected_delete_users = st.multiselect("Select Users to Delete", options=all_emails, default=inactive_candidates)
+        
+        if st.button("⚠️ PERMANENTLY DELETE SELECTED ACCOUNTS", type="primary"):
+            if selected_delete_users:
+                for del_e in selected_delete_users:
+                    supabase.table("users").delete().eq("email", del_e).execute()
+                    supabase.table("student_attendance").delete().eq("user_email", del_e).execute()
+                    supabase.table("semester_locks").delete().eq("user_email", del_e).execute()
+                st.success(f"Purged {len(selected_delete_users)} user accounts successfully!")
+                st.rerun()
+            else:
+                st.info("No users selected for deletion.")
+
+        st.markdown("---")
         st.subheader("📡 Live Presence Monitor")
         
         if users_list:
-            now = get_ist_time()
             for u in users_list:
                 u_email = u["email"]
                 u_name = u["name"]
@@ -457,9 +582,6 @@ if is_admin and admin_mode:
 
         st.markdown("---")
         st.subheader("🔓 Admin Semester Unlocker")
-        st.markdown("Override and clear locked status for any user who accidentally fixed their semester.")
-        
-        all_emails = [u["email"] for u in users_list]
         if all_emails:
             col_un1, col_un2, col_un3 = st.columns([2, 2, 1])
             with col_un1:
@@ -476,36 +598,6 @@ if is_admin and admin_mode:
                     }, on_conflict="user_email,semester").execute()
                     st.success(f"Successfully unlocked {target_unlock_sem} for {target_unlock_user}!")
 
-        st.markdown("---")
-        st.subheader("🔍 Searchable User Reports Directory")
-        
-        if users_list:
-            users_df = pd.DataFrame(users_list)
-            search_query = st.text_input("Search Users", placeholder="Filter by Name, Username, or Email...")
-
-            if search_query:
-                mask = users_df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-                filtered_df = users_df[mask]
-            else:
-                filtered_df = users_df
-
-            st.dataframe(filtered_df, use_container_width=True)
-
-            selected_inspect_user = st.selectbox("Inspect Academic Breakdown", options=all_emails, key="inspect_user_sel")
-            if selected_inspect_user:
-                st.markdown(f"#### 📊 Detailed Breakdown for: `{selected_inspect_user}`")
-                user_records = [r for r in att_list if r["user_email"] == selected_inspect_user]
-                
-                if user_records:
-                    for rec in user_records:
-                        with st.expander(f"📁 {rec['semester']} ({len(rec['subjects_json'])} subjects)"):
-                            if rec['subjects_json']:
-                                st.dataframe(pd.DataFrame(rec['subjects_json']), use_container_width=True)
-                            else:
-                                st.info("No subjects recorded.")
-                else:
-                    st.info("No semester records logged by this user yet.")
-
     except Exception as err:
         st.error(f"Error loading admin dashboard: {err}")
 
@@ -514,9 +606,6 @@ if is_admin and admin_mode:
 # ---------------------------------------------------------
 # REGULAR STUDENT NAVIGATION & VIEWS
 # ---------------------------------------------------------
-if "nav_mode" not in st.session_state:
-    st.session_state.nav_mode = "Data Entry & Management"
-
 st.session_state.sem_locks = load_locks_from_db(user_email)
 st.session_state.all_semesters = load_data_from_db(user_email)
 
@@ -533,80 +622,73 @@ default_target = st.sidebar.slider(
     step=1.0,
 )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Menu")
-
-if st.sidebar.button("📝 ENTER DETAILS", key="nav_enter"):
-    st.session_state.nav_mode = "Data Entry & Management"
-    st.rerun()
-
-if st.sidebar.button("🔄 UPDATE", key="nav_update"):
-    st.session_state.nav_mode = "Update Records"
-    st.rerun()
-
-if st.sidebar.button("📊 CALCULATE", key="nav_calc"):
-    st.session_state.nav_mode = "Calculation Dashboard"
-    st.rerun()
-
-nav_mode = st.session_state.nav_mode
 if selected_semester not in st.session_state.all_semesters:
     st.session_state.all_semesters[selected_semester] = []
 
 is_locked = st.session_state.sem_locks.get(selected_semester, False)
 current_subjects = st.session_state.all_semesters[selected_semester]
 
-# ---------------------------------------------------------
-# VIEW 1: DATA ENTRY & MANAGEMENT
-# ---------------------------------------------------------
-if nav_mode == "Data Entry & Management":
-    st.header(f"📌 Add Subjects: {selected_semester}")
+# TOP-LEVEL MODULE TABS
+main_tab_attendance, main_tab_assignments, main_tab_exams = st.tabs([
+    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table"
+])
 
-    if is_locked:
-        st.warning(
-            f"🔒 {selected_semester} is permanently fixed/locked. No further modifications can be made."
-        )
-    else:
-        st.markdown(
-            f"Register your subjects, credits, and current attendance stats for **{selected_semester}**."
-        )
+# =========================================================
+# TAB 1: ATTENDANCE & SGPA MANAGEMENT
+# =========================================================
+with main_tab_attendance:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Attendance Menu")
 
-        with st.form(
-            f"add_subject_form_{selected_semester}", clear_on_submit=True
-        ):
-            st.subheader("New Subject Registration")
-            col1, col2, col3, col4, col5, col6 = st.columns(
-                [2, 3, 1, 1, 1, 1]
-            )
-            with col1:
-                new_code = st.text_input("Subject Code", placeholder="e.g. TCS-401")
-            with col2:
-                new_name = st.text_input(
-                    "Subject Name", placeholder="e.g. Operating Systems"
-                )
-            with col3:
-                new_credits = st.number_input(
-                    "Credits", min_value=1, max_value=10, value=3, step=1
-                )
-            with col4:
-                new_attended = st.number_input(
-                    "Attended", min_value=0, value=0, step=1
-                )
-            with col5:
-                new_conducted = st.number_input(
-                    "Conducted", min_value=0, value=0, step=1
-                )
-            with col6:
-                st.markdown("<br>", unsafe_allow_html=True)
-                add_btn = st.form_submit_button("Add")
+    if "nav_mode" not in st.session_state:
+        st.session_state.nav_mode = "Data Entry & Management"
 
-            if add_btn:
-                if new_code.strip() == "" or new_name.strip() == "":
-                    st.error("Please enter both Subject Code and Name.")
-                elif new_attended > new_conducted:
-                    st.error("Attended classes cannot exceed conducted classes.")
-                else:
-                    current_subjects.append(
-                        {
+    if st.sidebar.button("📝 ENTER DETAILS", key="nav_enter"):
+        st.session_state.nav_mode = "Data Entry & Management"
+        st.rerun()
+
+    if st.sidebar.button("🔄 UPDATE", key="nav_update"):
+        st.session_state.nav_mode = "Update Records"
+        st.rerun()
+
+    if st.sidebar.button("📊 CALCULATE", key="nav_calc"):
+        st.session_state.nav_mode = "Calculation Dashboard"
+        st.rerun()
+
+    nav_mode = st.session_state.nav_mode
+
+    if nav_mode == "Data Entry & Management":
+        st.header(f"📌 Add Subjects: {selected_semester}")
+
+        if is_locked:
+            st.warning(f"🔒 {selected_semester} is permanently fixed/locked. No further modifications can be made.")
+        else:
+            st.markdown(f"Register your subjects, credits, and current attendance stats for **{selected_semester}**.")
+
+            with st.form(f"add_subject_form_{selected_semester}", clear_on_submit=True):
+                st.subheader("New Subject Registration")
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 3, 1, 1, 1, 1])
+                with col1:
+                    new_code = st.text_input("Subject Code", placeholder="e.g. TCS-401")
+                with col2:
+                    new_name = st.text_input("Subject Name", placeholder="e.g. Operating Systems")
+                with col3:
+                    new_credits = st.number_input("Credits", min_value=1, max_value=10, value=3, step=1)
+                with col4:
+                    new_attended = st.number_input("Attended", min_value=0, value=0, step=1)
+                with col5:
+                    new_conducted = st.number_input("Conducted", min_value=0, value=0, step=1)
+                with col6:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    add_btn = st.form_submit_button("Add")
+
+                if add_btn:
+                    if new_code.strip() == "" or new_name.strip() == "":
+                        st.error("Please enter both Subject Code and Name.")
+                    elif new_attended > new_conducted:
+                        st.error("Attended classes cannot exceed conducted classes.")
+                    else:
+                        current_subjects.append({
                             "code": new_code.upper(),
                             "name": new_name,
                             "credits": int(new_credits),
@@ -614,146 +696,90 @@ if nav_mode == "Data Entry & Management":
                             "conducted": int(new_conducted),
                             "grade_point": 0.0,
                             "attendance_date": str(date.today()),
-                        }
-                    )
-                    st.session_state.all_semesters[selected_semester] = (
-                        current_subjects
-                    )
-                    save_data_to_db(
-                        user_email, selected_semester, current_subjects
-                    )
-                    st.success(f"Added {new_code} - {new_name} successfully!")
-                    st.rerun()
+                        })
+                        st.session_state.all_semesters[selected_semester] = current_subjects
+                        save_data_to_db(user_email, selected_semester, current_subjects)
+                        st.success(f"Added {new_code} - {new_name} successfully!")
+                        st.rerun()
 
-    if current_subjects:
-        st.markdown("---")
-        st.subheader(f"Currently Registered Subjects ({selected_semester})")
-        for idx, subj in enumerate(current_subjects, 1):
-            att_date = subj.get("attendance_date", str(date.today()))
-            st.markdown(
-                f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)"
-            )
-    else:
-        st.info(f"No subjects added for {selected_semester} yet.")
-
-# ---------------------------------------------------------
-# VIEW 2: UPDATE RECORDS
-# ---------------------------------------------------------
-elif nav_mode == "Update Records":
-    st.header(f"🔄 Update Records: {selected_semester}")
-
-    if is_locked:
-        st.warning(
-            f"🔒 {selected_semester} is permanently fixed/locked. Records cannot be updated."
-        )
         if current_subjects:
             st.markdown("---")
-            st.subheader(f"Locked Records ({selected_semester})")
+            st.subheader(f"Currently Registered Subjects ({selected_semester})")
             for idx, subj in enumerate(current_subjects, 1):
                 att_date = subj.get("attendance_date", str(date.today()))
-                st.markdown(
-                    f"{idx}. **[{subj['code']}] {subj['name']}** | Grade Point: **{subj['grade_point']}** | Attended: {subj['attended']}/{subj['conducted']} | Last Updated: `{att_date}`"
-                )
-    else:
-        st.markdown(
-            f"Update your attendance or final grade points for **{selected_semester}**."
-        )
+                st.markdown(f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)")
+        else:
+            st.info(f"No subjects added for {selected_semester} yet.")
 
-        if current_subjects:
-            updated_subjects = []
-            data_changed = False
+    elif nav_mode == "Update Records":
+        st.header(f"🔄 Update Records: {selected_semester}")
 
-            @st.dialog("⚠️ Confirm Subject Deletion")
-            def confirm_delete_dialog(sem_name, sub_index, sub_code, sub_name, subjects_list):
-                st.markdown(f"Are you sure you want to delete **[{sub_code}] {sub_name}** from `{sem_name}`?")
-                col_y, col_n = st.columns(2)
-                with col_y:
-                    if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
-                        subjects_list.pop(sub_index)
-                        st.session_state.all_semesters[sem_name] = subjects_list
-                        save_data_to_db(user_email, sem_name, subjects_list)
-                        st.success(f"Deleted {sub_code} successfully!")
-                        st.rerun()
-                with col_n:
-                    if st.button("❌ Cancel", use_container_width=True):
-                        st.rerun()
+        if is_locked:
+            st.warning(f"🔒 {selected_semester} is permanently fixed/locked. Records cannot be updated.")
+            if current_subjects:
+                st.markdown("---")
+                st.subheader(f"Locked Records ({selected_semester})")
+                for idx, subj in enumerate(current_subjects, 1):
+                    att_date = subj.get("attendance_date", str(date.today()))
+                    st.markdown(f"{idx}. **[{subj['code']}] {subj['name']}** | Grade Point: **{subj['grade_point']}** | Attended: {subj['attended']}/{subj['conducted']} | Last Updated: `{att_date}`")
+        else:
+            st.markdown(f"Update your attendance or final grade points for **{selected_semester}**.")
 
-            for i, subj in enumerate(current_subjects):
-                existing_date_str = subj.get(
-                    "attendance_date", str(date.today())
-                )
+            if current_subjects:
+                updated_subjects = []
+                data_changed = False
 
-                with st.expander(
-                    f"📖 [{subj['code']}] {subj['name']} (Credits: {subj['credits']} | Last Updated: {existing_date_str})"
-                ):
-                    col_del, _ = st.columns([1, 4])
-                    with col_del:
-                        if st.button("🗑️ Delete", key=f"del_{selected_semester}_{i}"):
-                            confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
+                @st.dialog("⚠️ Confirm Subject Deletion")
+                def confirm_delete_dialog(sem_name, sub_index, sub_code, sub_name, subjects_list):
+                    st.markdown(f"Are you sure you want to delete **[{sub_code}] {sub_name}** from `{sem_name}`?")
+                    col_y, col_n = st.columns(2)
+                    with col_y:
+                        if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
+                            subjects_list.pop(sub_index)
+                            st.session_state.all_semesters[sem_name] = subjects_list
+                            save_data_to_db(user_email, sem_name, subjects_list)
+                            st.success(f"Deleted {sub_code} successfully!")
+                            st.rerun()
+                    with col_n:
+                        if st.button("❌ Cancel", use_container_width=True):
+                            st.rerun()
 
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        code = st.text_input(
-                            "Subject Code",
-                            value=subj["code"],
-                            key=f"code_{selected_semester}_{i}",
+                for i, subj in enumerate(current_subjects):
+                    existing_date_str = subj.get("attendance_date", str(date.today()))
+
+                    with st.expander(f"📖 [{subj['code']}] {subj['name']} (Credits: {subj['credits']} | Last Updated: {existing_date_str})"):
+                        col_del, _ = st.columns([1, 4])
+                        with col_del:
+                            if st.button("🗑️ Delete", key=f"del_{selected_semester}_{i}"):
+                                confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
+
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            code = st.text_input("Subject Code", value=subj["code"], key=f"code_{selected_semester}_{i}")
+                        with c2:
+                            name = st.text_input("Subject Name", value=subj["name"], key=f"name_{selected_semester}_{i}")
+                        with c3:
+                            credits = st.number_input("Credits", min_value=1, max_value=10, value=int(subj["credits"]), key=f"cred_{selected_semester}_{i}")
+
+                        c4, c5, c6 = st.columns(3)
+                        with c4:
+                            attended = st.number_input("Classes Attended", min_value=0, value=int(subj["attended"]), key=f"att_{selected_semester}_{i}")
+                        with c5:
+                            conducted = st.number_input("Classes Conducted", min_value=0, value=max(int(subj["conducted"]), attended), key=f"cond_{selected_semester}_{i}")
+                        with c6:
+                            endterm = st.number_input("Final Grade Point (0-10)", min_value=0.0, max_value=10.0, value=float(subj.get("grade_point", 0.0)), step=0.5, key=f"gp_{selected_semester}_{i}")
+
+                        field_changed = (
+                            code.upper() != subj["code"]
+                            or name != subj["name"]
+                            or credits != subj["credits"]
+                            or attended != subj["attended"]
+                            or conducted != subj["conducted"]
+                            or endterm != subj.get("grade_point", 0.0)
                         )
-                    with c2:
-                        name = st.text_input(
-                            "Subject Name",
-                            value=subj["name"],
-                            key=f"name_{selected_semester}_{i}",
-                        )
-                    with c3:
-                        credits = st.number_input(
-                            "Credits",
-                            min_value=1,
-                            max_value=10,
-                            value=int(subj["credits"]),
-                            key=f"cred_{selected_semester}_{i}",
-                        )
+                        final_date = str(date.today()) if field_changed else existing_date_str
 
-                    c4, c5, c6 = st.columns(3)
-                    with c4:
-                        attended = st.number_input(
-                            "Classes Attended",
-                            min_value=0,
-                            value=int(subj["attended"]),
-                            key=f"att_{selected_semester}_{i}",
-                        )
-                    with c5:
-                        conducted = st.number_input(
-                            "Classes Conducted",
-                            min_value=0,
-                            value=max(int(subj["conducted"]), attended),
-                            key=f"cond_{selected_semester}_{i}",
-                        )
-                    with c6:
-                        endterm = st.number_input(
-                            "Final Grade Point (0-10)",
-                            min_value=0.0,
-                            max_value=10.0,
-                            value=float(subj.get("grade_point", 0.0)),
-                            step=0.5,
-                            key=f"gp_{selected_semester}_{i}",
-                        )
-
-                    field_changed = (
-                        code.upper() != subj["code"]
-                        or name != subj["name"]
-                        or credits != subj["credits"]
-                        or attended != subj["attended"]
-                        or conducted != subj["conducted"]
-                        or endterm != subj.get("grade_point", 0.0)
-                    )
-                    final_date = (
-                        str(date.today())
-                        if field_changed
-                        else existing_date_str
-                    )
-
-                    updated_subjects.append(
-                        {
+                        updated_subjects.append({
                             "code": code.upper(),
                             "name": name,
                             "credits": credits,
@@ -761,80 +787,67 @@ elif nav_mode == "Update Records":
                             "conducted": conducted,
                             "grade_point": endterm,
                             "attendance_date": final_date,
-                        }
-                    )
+                        })
 
-            if updated_subjects != current_subjects:
-                data_changed = True
+                if updated_subjects != current_subjects:
+                    data_changed = True
 
-            st.session_state.all_semesters[selected_semester] = updated_subjects
-            if data_changed:
-                save_data_to_db(user_email, selected_semester, updated_subjects)
-                st.success("Records updated successfully!")
-                st.rerun()
+                st.session_state.all_semesters[selected_semester] = updated_subjects
+                if data_changed:
+                    save_data_to_db(user_email, selected_semester, updated_subjects)
+                    st.success("Records updated successfully!")
+                    st.rerun()
+            else:
+                st.info(f"No subjects found for {selected_semester}. Please add subjects first.")
+
+    elif nav_mode == "Calculation Dashboard":
+        st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
+
+        overall_weighted_gp = 0.0
+        overall_credits = 0
+        has_any_subjects = False
+
+        for sem, subj_list in st.session_state.all_semesters.items():
+            if subj_list:
+                has_any_subjects = True
+                for s in subj_list:
+                    overall_weighted_gp += s["credits"] * s.get("grade_point", 0.0)
+                    overall_credits += s["credits"]
+
+        if not has_any_subjects:
+            st.warning("No subjects found in any semester. Please add subjects first.")
         else:
-            st.info(
-                f"No subjects found for {selected_semester}. Please add subjects first."
-            )
+            cgpa = (overall_weighted_gp / overall_credits) if overall_credits > 0 else 0.0
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.metric(label="Overall CGPA (All Semesters)", value=f"{cgpa:.2f} / 10.0")
 
-# ---------------------------------------------------------
-# VIEW 3: CALCULATION DASHBOARD
-# ---------------------------------------------------------
-elif nav_mode == "Calculation Dashboard":
-    st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
+            st.markdown("---")
+            sem_subjects = current_subjects
 
-    overall_weighted_gp = 0.0
-    overall_credits = 0
-    has_any_subjects = False
+            if sem_subjects:
+                att_data = []
+                sem_weighted_gp = 0.0
+                sem_credits = 0
+                all_grades_entered = True
 
-    for sem, subj_list in st.session_state.all_semesters.items():
-        if subj_list:
-            has_any_subjects = True
-            for s in subj_list:
-                overall_weighted_gp += s["credits"] * s.get("grade_point", 0.0)
-                overall_credits += s["credits"]
+                for idx, subj in enumerate(sem_subjects, 1):
+                    if subj["grade_point"] <= 0.0:
+                        all_grades_entered = False
 
-    if not has_any_subjects:
-        st.warning("No subjects found in any semester. Please add subjects first.")
-    else:
-        cgpa = (
-            (overall_weighted_gp / overall_credits)
-            if overall_credits > 0
-            else 0.0
-        )
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.metric(
-                label="Overall CGPA (All Semesters)", value=f"{cgpa:.2f} / 10.0"
-            )
+                    att = subj["attended"]
+                    cond = subj["conducted"]
+                    att_date = subj.get("attendance_date", str(date.today()))
+                    pct = (att / cond * 100) if cond > 0 else 0.0
 
-        st.markdown("---")
-        sem_subjects = current_subjects
+                    if pct >= default_target:
+                        max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
+                        current_status = f"Safe (Can skip {max_skips})"
+                    else:
+                        needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
+                        current_status = f"Short (Need next {max(1, needed_consecutive)})"
 
-        if sem_subjects:
-            att_data = []
-            sem_weighted_gp = 0.0
-            sem_credits = 0
-            all_grades_entered = True
-
-            for idx, subj in enumerate(sem_subjects, 1):
-                if subj["grade_point"] <= 0.0:
-                    all_grades_entered = False
-
-                att = subj["attended"]
-                cond = subj["conducted"]
-                att_date = subj.get("attendance_date", str(date.today()))
-                pct = (att / cond * 100) if cond > 0 else 0.0
-
-                if pct >= default_target:
-                    max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
-                    current_status = f"Safe (Can skip {max_skips})"
-                else:
-                    needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
-                    current_status = f"Short (Need next {max(1, needed_consecutive)})"
-
-                att_data.append(
-                    {
+                    att_data.append({
                         "S.No.": idx,
                         "Code": subj["code"],
                         "Subject": subj["name"],
@@ -845,156 +858,273 @@ elif nav_mode == "Calculation Dashboard":
                         "Current Status": current_status,
                         "Grade Point": subj["grade_point"],
                         "Last Updated": att_date,
-                    }
+                    })
+
+                    sem_weighted_gp += subj["credits"] * subj["grade_point"]
+                    sem_credits += subj["credits"]
+
+                df = pd.DataFrame(att_data)
+                df.set_index("S.No.", inplace=True)
+                sgpa = (sem_weighted_gp / sem_credits) if sem_credits > 0 else 0.0
+
+                st.markdown("---")
+                st.subheader(f"📌 Academic Performance & SGPA ({selected_semester})")
+                st.metric(label=f"Current {selected_semester} SGPA", value=f"{sgpa:.2f} / 10.0")
+
+                st.markdown("---")
+                st.subheader("📋 Attendance & Exam Summary Table")
+                st.dataframe(df, use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("Attendance Percentage vs Target")
+                fig_bar = px.bar(
+                    df.reset_index(),
+                    x="Code",
+                    y="Percentage",
+                    text="Percentage",
+                    color="Percentage",
+                    color_continuous_scale="RdYlGn",
+                    range_y=[0, 100],
                 )
+                fig_bar.add_hline(
+                    y=default_target,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"Target ({default_target}%)",
+                    annotation_position="top right",
+                )
+                fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+                st.plotly_chart(fig_bar, use_container_width=True)
 
-                sem_weighted_gp += subj["credits"] * subj["grade_point"]
-                sem_credits += subj["credits"]
+                # Email Dispatcher Hub
+                st.markdown("---")
+                st.subheader("📧 Email Report Dispatcher")
+                st.markdown(f"Dispatch your complete academic performance report for **{selected_semester}** directly to your registered email (`{user_email}`).")
 
-            df = pd.DataFrame(att_data)
-            df.set_index("S.No.", inplace=True)
-            sgpa = (sem_weighted_gp / sem_credits) if sem_credits > 0 else 0.0
+                if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
+                    subject_text = f"📊 Academic Report - {selected_semester}"
+                    rows_html = ""
+                    for idx, row in df.iterrows():
+                        rows_html += f"""
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
+                        </tr>
+                        """
 
-            st.markdown("---")
-            st.subheader(
-                f"📌 Academic Performance & SGPA ({selected_semester})"
-            )
-            st.metric(
-                label=f"Current {selected_semester} SGPA",
-                value=f"{sgpa:.2f} / 10.0",
-            )
+                    html_body = f"""
+                    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                        <h2 style="color: #d90429; text-align: center;">🎓 Student Academic & Attendance Hub</h2>
+                        <hr style="border: none; border-top: 1px solid #eee;" />
+                        <p>Hello <b>{user_name}</b>,</p>
+                        <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
+                        
+                        <ul style="list-style: none; padding: 0;">
+                            <li>📅 <b>Semester:</b> {selected_semester}</li>
+                            <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
+                            <li>🏆 <b>Overall CGPA:</b> {cgpa:.2f} / 10.0</li>
+                            <li>🎯 <b>Target Attendance:</b> {default_target}%</li>
+                        </ul>
 
-            st.markdown("---")
-            st.subheader("📋 Attendance & Exam Summary Table")
-            st.dataframe(df, use_container_width=True)
-
-            st.markdown("---")
-            st.subheader("Attendance Percentage vs Target")
-            fig_bar = px.bar(
-                df.reset_index(),
-                x="Code",
-                y="Percentage",
-                text="Percentage",
-                color="Percentage",
-                color_continuous_scale="RdYlGn",
-                range_y=[0, 100],
-            )
-            fig_bar.add_hline(
-                y=default_target,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Target ({default_target}%)",
-                annotation_position="top right",
-            )
-            fig_bar.update_traces(
-                texttemplate="%{text:.1f}%", textposition="outside"
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-            # Email Dispatcher Hub
-            st.markdown("---")
-            st.subheader("📧 Email Report Dispatcher")
-            st.markdown(f"Dispatch your complete academic performance report for **{selected_semester}** directly to your registered email (`{user_email}`).")
-
-            if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
-                subject_text = f"📊 Academic Report - {selected_semester}"
-                
-                rows_html = ""
-                for idx, row in df.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
-                    </tr>
+                        <h3 style="margin-top: 20px;">Subject Breakdown</h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
+                            <thead>
+                                <tr style="background-color: #f8f9fa;">
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Code</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Subject</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Attendance</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Status</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Grade</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html}
+                            </tbody>
+                        </table>
+                    </div>
                     """
 
-                html_body = f"""
-                <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-                    <h2 style="color: #d90429; text-align: center;">🎓 Student Academic & Attendance Hub</h2>
-                    <hr style="border: none; border-top: 1px solid #eee;" />
-                    <p>Hello <b>{user_name}</b>,</p>
-                    <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
-                    
-                    <ul style="list-style: none; padding: 0;">
-                        <li>📅 <b>Semester:</b> {selected_semester}</li>
-                        <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
-                        <li>🏆 <b>Overall CGPA:</b> {cgpa:.2f} / 10.0</li>
-                        <li>🎯 <b>Target Attendance:</b> {default_target}%</li>
-                    </ul>
+                    sent = send_report_email(user_email, subject_text, html_body)
+                    if sent:
+                        st.success(f"Successfully sent the report to **{user_email}**!")
+                    else:
+                        st.error("Failed to send email. Please check your configuration.")
 
-                    <h3 style="margin-top: 20px;">Subject Breakdown</h3>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
-                        <thead>
-                            <tr style="background-color: #f8f9fa;">
-                                <th style="padding: 8px; border: 1px solid #ddd;">Code</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">Subject</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">Attendance</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">Status</th>
-                                <th style="padding: 8px; border: 1px solid #ddd;">Grade</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows_html}
-                        </tbody>
-                    </table>
-                    
-                    <p style="margin-top: 30px; font-size: 12px; color: #777; text-align: center;">
-                        Generated automatically via Student Academic & Attendance Hub.
-                    </p>
-                </div>
-                """
+                # Semester Fixation
+                st.markdown("---")
+                st.subheader(f"🔒 Semester Fixation ({selected_semester})")
 
-                sent = send_report_email(user_email, subject_text, html_body)
-                if sent:
-                    st.success(f"Successfully sent the report to **{user_email}**!")
+                @st.dialog("⚠️ Confirm Permanent Fixation")
+                def confirm_fix_dialog(sem_name):
+                    st.markdown(f"Are you sure you want to **permanently lock {sem_name}**?")
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        if st.button("✅ Yes, Lock Permanently", use_container_width=True):
+                            st.session_state.sem_locks[sem_name] = True
+                            save_lock_to_db(user_email, sem_name, True)
+                            st.success(f"{sem_name} has been permanently locked!")
+                            st.rerun()
+                    with col_c2:
+                        if st.button("❌ Cancel", use_container_width=True):
+                            st.rerun()
+
+                if is_locked:
+                    st.success(f"🔒 Status: {selected_semester} is permanently fixed and locked.")
                 else:
-                    st.error("Failed to send email. Please check your configuration.")
-
-            # Semester Fixation
-            st.markdown("---")
-            st.subheader(f"🔒 Semester Fixation ({selected_semester})")
-
-            @st.dialog("⚠️ Confirm Permanent Fixation")
-            def confirm_fix_dialog(sem_name):
-                st.markdown(
-                    f"Are you sure you want to **permanently lock {sem_name}**?"
-                )
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    if st.button(
-                        "✅ Yes, Lock Permanently", use_container_width=True
-                    ):
-                        st.session_state.sem_locks[sem_name] = True
-                        save_lock_to_db(user_email, sem_name, True)
-                        st.success(f"{sem_name} has been permanently locked!")
-                        st.rerun()
-                with col_c2:
-                    if st.button("❌ Cancel", use_container_width=True):
-                        st.rerun()
-
-            if is_locked:
-                st.success(
-                    f"🔒 Status: {selected_semester} is permanently fixed and locked."
-                )
+                    if not all_grades_entered:
+                        st.info("ℹ️ The **FIX** button will become available once final grade points (> 0.0) are entered for all subjects.")
+                        st.button("🔒 FIX SEMESTER DATA", disabled=True, use_container_width=True)
+                    else:
+                        if st.button("🔒 FIX SEMESTER DATA", type="primary", use_container_width=True):
+                            confirm_fix_dialog(selected_semester)
             else:
-                if not all_grades_entered:
-                    st.info(
-                        "ℹ️ The **FIX** button will become available once final grade points (> 0.0) are entered for all subjects."
-                    )
-                    st.button(
-                        "🔒 FIX SEMESTER DATA",
-                        disabled=True,
-                        use_container_width=True,
-                    )
+                st.info(f"No subjects recorded for {selected_semester} yet.")
+
+# =========================================================
+# TAB 2: ASSIGNMENTS & TASKS
+# =========================================================
+with main_tab_assignments:
+    st.header(f"📝 Assignment & Task Tracker ({selected_semester})")
+    
+    if not current_subjects:
+        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+    else:
+        subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
+        
+        with st.expander("➕ Add New Assignment / Project Submission", expanded=True):
+            with st.form("add_assignment_form", clear_on_submit=True):
+                col_a1, col_a2 = st.columns([2, 2])
+                with col_a1:
+                    sel_sub_str = st.selectbox("Select Subject", options=subject_options)
+                    asgn_title = st.text_input("Assignment Title / Description", placeholder="e.g. Lab Report #3")
+                with col_a2:
+                    due_date_val = st.date_input("Submission Due Date", value=date.today() + timedelta(days=7))
+                    due_time_val = st.time_input("Submission Due Time", value=datetime.strptime("23:59", "%H:%M").time())
+                
+                uploaded_file = st.file_uploader("Attach Document / File (Optional)", type=["pdf", "docx", "zip", "png", "jpg"])
+                submit_asgn = st.form_submit_button("Add Assignment", type="primary")
+                
+                if submit_asgn:
+                    if not asgn_title.strip():
+                        st.error("Please enter an assignment title.")
+                    else:
+                        sub_code = sel_sub_str.split("]")[0].replace("[", "")
+                        combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
+                        
+                        file_url = None
+                        if uploaded_file:
+                            file_url = f"Attached: {uploaded_file.name}"
+                        
+                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), file_url)
+                        st.success(f"Added assignment '{asgn_title}' for {sub_code}!")
+                        st.rerun()
+
+        st.markdown("---")
+        st.subheader("📋 Active Assignments & Live Countdown Timers")
+        
+        assignments = load_assignments_from_db(user_email, selected_semester)
+        if assignments:
+            now_ist = get_ist_time()
+            for asg in assignments:
+                sub_code = asg["subject_code"]
+                title = asg["title"]
+                due_str = asg["due_date"]
+                f_url = asg.get("file_url")
+                
+                due_dt = datetime.fromisoformat(due_str)
+                if due_dt.tzinfo is None:
+                    due_dt = due_dt.replace(tzinfo=IST)
+                
+                diff = due_dt - now_ist
+                if diff.total_seconds() > 0:
+                    days = diff.days
+                    hours, remainder = divmod(diff.seconds, 3600)
+                    minutes, _ = divmod(remainder, 60)
+                    timer_str = f"⏳ **{days}d {hours}h {minutes}m remaining**"
+                    status_badge = "🟢 In Progress"
                 else:
-                    if st.button(
-                        "🔒 FIX SEMESTER DATA",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        confirm_fix_dialog(selected_semester)
+                    timer_str = "⚠️ **OVERDUE / PASSED**"
+                    status_badge = "🔴 Past Due"
+
+                with st.container():
+                    col_b1, col_b2, col_b3 = st.columns([3, 2, 1])
+                    with col_b1:
+                        st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
+                        if f_url:
+                            st.caption(f"📁 {f_url}")
+                    with col_b2:
+                        st.markdown(timer_str)
+                        st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
+                    with col_b3:
+                        if st.button("🗑️ Remove", key=f"del_asg_{asg['id']}"):
+                            supabase.table("student_assignments").delete().eq("id", asg['id']).execute()
+                            st.rerun()
+                    st.divider()
         else:
-            st.info(f"No subjects recorded for {selected_semester} yet.")
+            st.info("No assignments recorded for this semester yet.")
+
+# =========================================================
+# TAB 3: EXAMS & TIME TABLE
+# =========================================================
+with main_tab_exams:
+    st.header(f"📅 Examination Schedule & Time Table ({selected_semester})")
+    
+    if not current_subjects:
+        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+    else:
+        subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
+        
+        with st.expander("➕ Log New Exam Date & Syllabus", expanded=True):
+            with st.form("add_exam_form", clear_on_submit=True):
+                col_e1, col_e2 = st.columns([2, 2])
+                with col_e1:
+                    sel_sub_exam = st.selectbox("Select Subject", options=subject_options, key="exam_sub_sel")
+                    exam_type = st.selectbox("Exam Type", options=["Mid-Term Examination", "End-Term Examination", "Quiz / Test"])
+                with col_e2:
+                    exam_date_val = st.date_input("Exam Date", value=date.today() + timedelta(days=14))
+                    exam_time_val = st.time_input("Exam Start Time", value=datetime.strptime("10:00", "%H:%M").time())
+                
+                exam_syllabus = st.text_area("Syllabus Outline / Topics Covered", placeholder="e.g. Units 1 to 3, Memory Management, Scheduling Algorithms")
+                submit_exam = st.form_submit_button("Save Exam Schedule", type="primary")
+                
+                if submit_exam:
+                    sub_code = sel_sub_exam.split("]")[0].replace("[", "")
+                    combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
+                    save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
+                    st.success(f"Scheduled {exam_type} for {sub_code}!")
+                    st.rerun()
+
+        st.markdown("---")
+        st.subheader("🗓️ Semester Examination Time Table")
+        
+        exams = load_exams_from_db(user_email, selected_semester)
+        if exams:
+            exam_rows = []
+            for ex in exams:
+                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                exam_rows.append({
+                    "Subject Code": ex["subject_code"],
+                    "Exam Type": ex["exam_type"],
+                    "Date": dt_obj.strftime("%Y-%m-%d"),
+                    "Time": dt_obj.strftime("%I:%M %p"),
+                    "Syllabus Outline": ex.get("syllabus", "N/A"),
+                })
+            
+            ex_df = pd.DataFrame(exam_rows).sort_values("Date")
+            st.dataframe(ex_df, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("📖 Detailed Exam Breakdown")
+            for ex in exams:
+                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
+                    st.markdown(f"**Syllabus Outline:**")
+                    st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
+                    if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
+                        supabase.table("student_exams").delete().eq("id", ex['id']).execute()
+                        st.rerun()
+        else:
+            st.info("No exam schedules logged for this semester yet.")
