@@ -1004,7 +1004,7 @@ with main_tab_assignments:
                     due_date_val = st.date_input("Submission Due Date", value=date.today() + timedelta(days=7))
                     due_time_val = st.time_input("Submission Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                uploaded_file = st.file_uploader("Attach Document / File (Optional)", type=["pdf", "docx", "zip", "png", "jpg"])
+                assignment_link = st.text_input("Assignment Link or Reference URL (Optional)", placeholder="e.g. https://github.com/... or google docs link")
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
                 if submit_asgn:
@@ -1014,11 +1014,7 @@ with main_tab_assignments:
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
                         
-                        file_url = None
-                        if uploaded_file:
-                            file_url = f"Attached: {uploaded_file.name}"
-                        
-                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), file_url)
+                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), assignment_link.strip() if assignment_link else None)
                         st.success(f"Added assignment '{asgn_title}' for {sub_code}!")
                         st.rerun()
 
@@ -1054,7 +1050,7 @@ with main_tab_assignments:
                     with col_b1:
                         st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
                         if f_url:
-                            st.caption(f"📁 {f_url}")
+                            st.markdown(f"🔗 [Assignment Reference Link]({f_url})")
                     with col_b2:
                         st.markdown(timer_str)
                         st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
@@ -1110,14 +1106,13 @@ with main_tab_exams:
                     "Exam Type": ex["exam_type"],
                     "Date": dt_obj.strftime("%Y-%m-%d"),
                     "Time": dt_obj.strftime("%I:%M %p"),
-                    "Syllabus Outline": ex.get("syllabus", "N/A"),
                 })
             
             ex_df = pd.DataFrame(exam_rows).sort_values("Date")
             st.dataframe(ex_df, use_container_width=True)
             
             st.markdown("---")
-            st.subheader("📖 Detailed Exam Breakdown")
+            st.subheader("📖 Detailed Exam Breakdown & Syllabus")
             for ex in exams:
                 dt_obj = datetime.fromisoformat(ex["exam_date"])
                 with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
