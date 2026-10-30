@@ -465,7 +465,7 @@ else:
 
 if is_admin and admin_mode:
     st.header("🕵️ System Administrator Dashboard")
-    st.markdown("Monitor user activity, purge accounts, broadcast announcements, manage locked records, and inspect reports.")
+    st.markdown("Monitor user activity, broadcast announcements, manage locked records, and inspect reports.")
 
     try:
         users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
@@ -518,42 +518,10 @@ if is_admin and admin_mode:
             pass
 
         st.markdown("---")
-        st.subheader("🗑️ Bulk Account & Inactive User Eraser")
-        st.markdown("Permanently purge test accounts, inactive students, or selected user profiles from database.")
-        
-        now = get_ist_time()
-        inactive_candidates = []
-        for u in users_list:
-            u_ls = u.get("last_seen")
-            if not u_ls:
-                inactive_candidates.append(u["email"])
-            else:
-                try:
-                    dt = datetime.fromisoformat(u_ls)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=IST)
-                    if (now - dt).total_seconds() > (7 * 24 * 3600): # 7 days inactive
-                        inactive_candidates.append(u["email"])
-                except Exception:
-                    inactive_candidates.append(u["email"])
-
-        selected_delete_users = st.multiselect("Select Users to Delete", options=all_emails, default=inactive_candidates)
-        
-        if st.button("⚠️ PERMANENTLY DELETE SELECTED ACCOUNTS", type="primary"):
-            if selected_delete_users:
-                for del_e in selected_delete_users:
-                    supabase.table("users").delete().eq("email", del_e).execute()
-                    supabase.table("student_attendance").delete().eq("user_email", del_e).execute()
-                    supabase.table("semester_locks").delete().eq("user_email", del_e).execute()
-                st.success(f"Purged {len(selected_delete_users)} user accounts successfully!")
-                st.rerun()
-            else:
-                st.info("No users selected for deletion.")
-
-        st.markdown("---")
         st.subheader("📡 Live Presence Monitor")
         
         if users_list:
+            now = get_ist_time()
             for u in users_list:
                 u_email = u["email"]
                 u_name = u["name"]
@@ -1012,6 +980,7 @@ with main_tab_assignments:
                         st.error("Please enter an assignment title.")
                     else:
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
+                        # Correctly combine date and time keeping IST timezone to avoid offset bugs
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
                         
                         save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), assignment_link.strip() if assignment_link else None)
@@ -1050,7 +1019,10 @@ with main_tab_assignments:
                     with col_b1:
                         st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
                         if f_url:
-                            st.markdown(f"🔗 [Assignment Reference Link]({f_url})")
+                            if f_url.startswith("http://") or f_url.startswith("https://"):
+                                st.markdown(f"🔗 [Open Reference Link]({f_url})")
+                            else:
+                                st.markdown(f"📁 {f_url}")
                     with col_b2:
                         st.markdown(timer_str)
                         st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
@@ -1088,6 +1060,7 @@ with main_tab_exams:
                 
                 if submit_exam:
                     sub_code = sel_sub_exam.split("]")[0].replace("[", "")
+                    # Correctly combine date and time keeping IST timezone to avoid offset bugs
                     combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
                     save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
                     st.success(f"Scheduled {exam_type} for {sub_code}!")
