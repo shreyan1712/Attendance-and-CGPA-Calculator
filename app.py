@@ -297,7 +297,7 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
-# Update presence heartbeat (using UTC time to ensure reliable comparison)
+# Update presence heartbeat (using UTC time)
 try:
     supabase.table("users").update({"last_seen": datetime.now(timezone.utc).isoformat()}).eq("email", user_email).execute()
 except Exception:
@@ -546,9 +546,10 @@ if is_admin and admin_mode:
                     try:
                         last_seen_dt = parse_db_time(u_last_seen)
                         diff_sec = (now_utc - last_seen_dt).total_seconds()
-                        if 0 <= diff_sec < 45:
+                        # Tightened threshold to 20 seconds for responsive offline switching
+                        if 0 <= diff_sec < 20:
                             status_label = "🟢 Online Now"
-                        elif diff_sec >= 45:
+                        elif diff_sec >= 20:
                             mins = max(1, int(diff_sec / 60))
                             status_label = f"🕒 Last seen {mins}m ago"
                         else:
