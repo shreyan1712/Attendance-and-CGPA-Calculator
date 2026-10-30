@@ -6,6 +6,7 @@ import math
 import random
 import pandas as pd
 import plotly.express as px
+import pyotp
 import requests
 import streamlit as st
 from supabase import create_client
@@ -444,6 +445,8 @@ if st.sidebar.button("🚪 Logout", key="logout_btn"):
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
+    st.session_state.admin_unlocked = False
+    st.session_state.show_admin_login = False
     st.rerun()
 
 st.sidebar.markdown(f"Welcome, **{user_name}**!")
@@ -465,17 +468,64 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# HIDDEN ADMIN PANEL & SURVEILLANCE DASHBOARD
+# SECURE ADMIN PANEL & GOOGLE AUTHENTICATOR GATE
 # ---------------------------------------------------------
 admin_email_secret = st.secrets.get("admin_email", "")
 is_admin = admin_email_secret and user_email == admin_email_secret
 
+if "admin_unlocked" not in st.session_state:
+    st.session_state.admin_unlocked = False
+if "show_admin_login" not in st.session_state:
+    st.session_state.show_admin_login = False
+
 if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🕵️ Admin Controls")
-    admin_mode = st.sidebar.toggle("Enable Admin Dashboard", value=False)
+    if not st.session_state.admin_unlocked:
+        if st.sidebar.button("🔐 Enter Admin Mode", type="primary"):
+            st.session_state.show_admin_login = True
+            st.rerun()
+        admin_mode = False
+    else:
+        if st.sidebar.button("🔒 Lock Admin Mode"):
+            st.session_state.admin_unlocked = False
+            st.session_state.show_admin_login = False
+            st.rerun()
+        admin_mode = True
 else:
     admin_mode = False
+
+# Screen Takeover for Google Authenticator prompt
+if is_admin and st.session_state.show_admin_login and not st.session_state.admin_unlocked:
+    st.title("🔐 Secure Admin Authentication")
+    st.markdown("Please enter your **Google Authenticator 6-digit code** to access the System Administrator Dashboard.")
+    
+    with st.form("admin_totp_verify_form"):
+        totp_input = st.text_input("6-Digit Authenticator Code", max_chars=6, type="default")
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            submit_verify = st.form_submit_button("Verify & Unlock", type="primary")
+        with col_v2:
+            submit_cancel = st.form_submit_button("Cancel / Return")
+
+        if submit_cancel:
+            st.session_state.show_admin_login = False
+            st.rerun()
+
+        if submit_verify:
+            totp_secret = st.secrets.get("admin_totp_secret", "")
+            if not totp_secret:
+                st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
+            else:
+                totp = pyotp.TOTP(totp_secret)
+                if totp.verify(totp_input.strip()):
+                    st.session_state.admin_unlocked = True
+                    st.session_state.show_admin_login = False
+                    st.success("Authentication successful! Unlocking admin dashboard...")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid Authenticator code. Please try again.")
+    st.stop()
 
 if is_admin and admin_mode:
     st.header("🕵️ System Administrator Dashboard")
