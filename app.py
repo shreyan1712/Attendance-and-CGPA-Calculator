@@ -41,6 +41,17 @@ def get_ist_time():
     return datetime.now(IST)
 
 
+# Helper function to parse DB timestamps into IST safely
+def parse_db_time(iso_str):
+    if not iso_str:
+        return get_ist_time()
+    dt = datetime.fromisoformat(iso_str)
+    if dt.tzinfo is not None:
+        return dt.astimezone(IST)
+    else:
+        return dt.replace(tzinfo=timezone.utc).astimezone(IST)
+
+
 # Helper function to send OTP & Emails via API
 def send_otp_email(recipient_email, otp_code):
     try:
@@ -530,9 +541,7 @@ if is_admin and admin_mode:
                 status_label = "🔴 Offline"
                 if u_last_seen:
                     try:
-                        last_seen_dt = datetime.fromisoformat(u_last_seen)
-                        if last_seen_dt.tzinfo is None:
-                            last_seen_dt = last_seen_dt.replace(tzinfo=IST)
+                        last_seen_dt = parse_db_time(u_last_seen)
                         diff_sec = (now - last_seen_dt).total_seconds()
                         if diff_sec < 45:
                             status_label = "🟢 Online Now"
@@ -972,7 +981,7 @@ with main_tab_assignments:
                     due_date_val = st.date_input("Submission Due Date", value=date.today() + timedelta(days=7))
                     due_time_val = st.time_input("Submission Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                assignment_link = st.text_input("Assignment Link or Reference URL (Optional)", placeholder="e.g. https://github.com/... or google docs link")
+                assignment_link = st.text_input("Assignment Link, URL or File Path (Optional)", placeholder="e.g. https://github.com/... or C:\\path\\to\\file")
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
                 if submit_asgn:
@@ -980,7 +989,6 @@ with main_tab_assignments:
                         st.error("Please enter an assignment title.")
                     else:
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
-                        # Correctly combine date and time keeping IST timezone to avoid offset bugs
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
                         
                         save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), assignment_link.strip() if assignment_link else None)
@@ -999,9 +1007,7 @@ with main_tab_assignments:
                 due_str = asg["due_date"]
                 f_url = asg.get("file_url")
                 
-                due_dt = datetime.fromisoformat(due_str)
-                if due_dt.tzinfo is None:
-                    due_dt = due_dt.replace(tzinfo=IST)
+                due_dt = parse_db_time(due_str)
                 
                 diff = due_dt - now_ist
                 if diff.total_seconds() > 0:
@@ -1022,7 +1028,7 @@ with main_tab_assignments:
                             if f_url.startswith("http://") or f_url.startswith("https://"):
                                 st.markdown(f"🔗 [Open Reference Link]({f_url})")
                             else:
-                                st.markdown(f"📁 {f_url}")
+                                st.code(f_url, language=None)
                     with col_b2:
                         st.markdown(timer_str)
                         st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
@@ -1060,7 +1066,6 @@ with main_tab_exams:
                 
                 if submit_exam:
                     sub_code = sel_sub_exam.split("]")[0].replace("[", "")
-                    # Correctly combine date and time keeping IST timezone to avoid offset bugs
                     combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
                     save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
                     st.success(f"Scheduled {exam_type} for {sub_code}!")
@@ -1073,7 +1078,7 @@ with main_tab_exams:
         if exams:
             exam_rows = []
             for ex in exams:
-                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                dt_obj = parse_db_time(ex["exam_date"])
                 exam_rows.append({
                     "Subject Code": ex["subject_code"],
                     "Exam Type": ex["exam_type"],
@@ -1087,7 +1092,7 @@ with main_tab_exams:
             st.markdown("---")
             st.subheader("📖 Detailed Exam Breakdown & Syllabus")
             for ex in exams:
-                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                dt_obj = parse_db_time(ex["exam_date"])
                 with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
                     st.markdown(f"**Syllabus Outline:**")
                     st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
