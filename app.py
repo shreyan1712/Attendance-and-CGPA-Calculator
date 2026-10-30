@@ -44,12 +44,15 @@ def get_ist_time():
 # Helper function to parse DB timestamps into IST safely
 def parse_db_time(iso_str):
     if not iso_str:
-        return get_ist_time()
-    dt = datetime.fromisoformat(iso_str)
-    if dt.tzinfo is not None:
-        return dt.astimezone(IST)
-    else:
-        return dt.replace(tzinfo=timezone.utc).astimezone(IST)
+        return datetime.now(timezone.utc)
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc)
+        else:
+            return dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return datetime.now(timezone.utc)
 
 
 # Helper function to send OTP & Emails via API
@@ -213,7 +216,7 @@ if not st.session_state.authenticated:
                                 user_email_db = db_user["email"]
                                 
                                 otp = str(random.randint(100000, 999999))
-                                expiry = (get_ist_time() + timedelta(minutes=10)).isoformat()
+                                expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
                                 
                                 supabase.table("users").update({
                                     "reset_otp": otp,
@@ -265,7 +268,7 @@ if not st.session_state.authenticated:
                                 db_otp = u_data.get("reset_otp")
                                 db_expiry = u_data.get("otp_expiry")
                                 
-                                now = get_ist_time()
+                                now = datetime.now(timezone.utc)
                                 expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
 
                                 if entered_otp.strip() != str(db_otp):
@@ -294,9 +297,9 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
-# Update presence heartbeat (using IST time)
+# Update presence heartbeat (using UTC time to ensure reliable comparison)
 try:
-    supabase.table("users").update({"last_seen": get_ist_time().isoformat()}).eq("email", user_email).execute()
+    supabase.table("users").update({"last_seen": datetime.now(timezone.utc).isoformat()}).eq("email", user_email).execute()
 except Exception:
     pass
 
@@ -532,7 +535,7 @@ if is_admin and admin_mode:
         st.subheader("📡 Live Presence Monitor")
         
         if users_list:
-            now = get_ist_time()
+            now_utc = datetime.now(timezone.utc)
             for u in users_list:
                 u_email = u["email"]
                 u_name = u["name"]
@@ -542,8 +545,7 @@ if is_admin and admin_mode:
                 if u_last_seen:
                     try:
                         last_seen_dt = parse_db_time(u_last_seen)
-                        # Fix: explicitly calculate absolute seconds difference
-                        diff_sec = (now - last_seen_dt).total_seconds()
+                        diff_sec = (now_utc - last_seen_dt).total_seconds()
                         if 0 <= diff_sec < 45:
                             status_label = "🟢 Online Now"
                         elif diff_sec >= 45:
@@ -1010,7 +1012,9 @@ with main_tab_assignments:
                 due_str = asg["due_date"]
                 f_url = asg.get("file_url")
                 
-                due_dt = parse_db_time(due_str)
+                due_dt = datetime.fromisoformat(due_str)
+                if due_dt.tzinfo is not None:
+                    due_dt = due_dt.astimezone(IST)
                 
                 diff = due_dt - now_ist
                 if diff.total_seconds() > 0:
@@ -1081,7 +1085,9 @@ with main_tab_exams:
         if exams:
             exam_rows = []
             for ex in exams:
-                dt_obj = parse_db_time(ex["exam_date"])
+                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                if dt_obj.tzinfo is not None:
+                    dt_obj = dt_obj.astimezone(IST)
                 exam_rows.append({
                     "Subject Code": ex["subject_code"],
                     "Exam Type": ex["exam_type"],
@@ -1095,7 +1101,9 @@ with main_tab_exams:
             st.markdown("---")
             st.subheader("📖 Detailed Exam Breakdown & Syllabus")
             for ex in exams:
-                dt_obj = parse_db_time(ex["exam_date"])
+                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                if dt_obj.tzinfo is not None:
+                    dt_obj = dt_obj.astimezone(IST)
                 with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
                     st.markdown(f"**Syllabus Outline:**")
                     st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
