@@ -1471,7 +1471,7 @@ with main_tab_notes:
                         mat_sub = st.text_input("Subject Code / Name", placeholder="e.g. TCS-401 or Mathematics")
                         mat_title = st.text_input("Resource Title", placeholder="e.g. Chapter 4 Lecture Notes PDF")
                     with col_m2:
-                        mat_type = st.selectbox("Resource Type", options=["External URL / Website Link", "PDF Document", "Word Document (.docx)", "Photo / Diagram"])
+                        mat_type = st.selectbox("Resource Type", options=["External URL / Website Link", "PDF Document", "Word Document (.docx)", "Text File (.txt)", "Photo / Diagram"])
                         mat_desc = st.text_input("Description (Optional)", placeholder="e.g. Covers Memory Management & Paging")
 
                     st.markdown("##### Choose Source Type:")
@@ -1481,7 +1481,7 @@ with main_tab_notes:
                         mat_link_input = st.text_input("Resource Web Link (URL)", placeholder="https://example.com/notes.pdf")
 
                     with tab_upload_file:
-                        uploaded_file = st.file_uploader("Choose File (PDF, DOCX, PNG, JPG)", type=["pdf", "docx", "png", "jpg", "jpeg"])
+                        uploaded_file = st.file_uploader("Choose File (PDF, DOCX, TXT, PNG, JPG)", type=["pdf", "docx", "txt", "png", "jpg", "jpeg"])
 
                     submit_material = st.form_submit_button("🚀 Upload & Save Resource", type="primary")
 
@@ -1506,6 +1506,8 @@ with main_tab_notes:
                                         saved_type = "PDF"
                                     elif ext.lower() in ["docx"]:
                                         saved_type = "DOCUMENT"
+                                    elif ext.lower() in ["txt"]:
+                                        saved_type = "TEXT"
                                     elif ext.lower() in ["png", "jpg", "jpeg"]:
                                         saved_type = "IMAGE"
                                 except Exception as storage_err:
