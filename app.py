@@ -583,7 +583,6 @@ if is_admin and admin_mode:
 
         if st.button("📥 DOWNLOAD FULL SYSTEM BACKUP (JSON)", type="primary"):
             try:
-                # Fetch all records across every core database table including timetables
                 backup_data = {
                     "backup_timestamp": datetime.now(timezone.utc).isoformat(),
                     "users": supabase.table("users").select("*").execute().data,
@@ -608,6 +607,97 @@ if is_admin and admin_mode:
                 st.success("✅ Backup generated successfully! Click the button above to save the file.")
             except Exception as backup_err:
                 st.error(f"❌ Failed to generate system backup: {backup_err}")
+
+        # ---------------------------------------------------------
+        # STEALTH ADMIN SUMMARY DISPATCHER
+        # ---------------------------------------------------------
+        st.markdown("---")
+        st.subheader("🕵️‍♂️ Stealth User Summary Dispatcher")
+        st.markdown("Quietly compile and dispatch any student's academic performance report directly to your admin email address without notifying the user.")
+
+        if users_list:
+            all_user_emails = [u["email"] for u in users_list]
+            with st.form("stealth_dispatch_form"):
+                col_sd1, col_sd2 = st.columns(2)
+                with col_sd1:
+                    stealth_target_email = st.selectbox("Select Target User", options=all_user_emails)
+                with col_sd2:
+                    stealth_target_sem = st.selectbox("Select Semester", options=[f"Semester {i}" for i in range(1, 9)])
+                
+                submit_stealth = st.form_submit_button("🚀 Dispatch Stealth Report to My Email", type="primary")
+
+                if submit_stealth:
+                    try:
+                        # Fetch target user's details
+                        t_user_resp = supabase.table("users").select("name").eq("email", stealth_target_email).execute()
+                        t_name = t_user_resp.data[0]["name"] if t_user_resp.data else "Unknown Student"
+
+                        # Fetch target user's attendance/subjects for that semester
+                        t_att_resp = supabase.table("student_attendance").select("*").eq("user_email", stealth_target_email).eq("semester", stealth_target_sem).execute()
+                        
+                        subjects = t_att_resp.data[0]["subjects_json"] if t_att_resp.data and t_att_resp.data[0].get("subjects_json") else []
+
+                        if not subjects:
+                            st.warning(f"No subject data found for {stealth_target_email} in {stealth_target_sem}.")
+                        else:
+                            # Calculate SGPA & rows
+                            weighted_gp = 0.0
+                            total_cred = 0
+                            rows_html = ""
+
+                            for subj in subjects:
+                                att = subj["attended"]
+                                cond = subj["conducted"]
+                                gp = subj.get("grade_point", 0.0)
+                                cred = subj["credits"]
+                                pct = (att / cond * 100) if cond > 0 else 0.0
+                                
+                                weighted_gp += cred * gp
+                                total_cred += cred
+
+                                rows_html += f"""
+                                <tr>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">{subj['code']}</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">{subj['name']}</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">{round(pct, 2)}% ({att}/{cond})</td>
+                                    <td style="padding: 8px; border: 1px solid #ddd;">{gp}</td>
+                                </tr>
+                                """
+
+                            target_sgpa = (weighted_gp / total_cred) if total_cred > 0 else 0.0
+
+                            stealth_html_body = f"""
+                            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 2px dashed #d90429; border-radius: 10px;">
+                                <h3 style="color: #d90429; text-align: center;">🕵️‍♂️ STEALTH ADMIN REPORT DISPATCH</h3>
+                                <p><b>Student Name:</b> {t_name} ({stealth_target_email})</p>
+                                <p><b>Semester:</b> {stealth_target_sem}</p>
+                                <p><b>Calculated SGPA:</b> {target_sgpa:.2f} / 10.0</p>
+                                
+                                <h4 style="margin-top: 15px;">Subject Breakdown:</h4>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                                    <thead>
+                                        <tr style="background-color: #f8f9fa;">
+                                            <th style="padding: 6px; border: 1px solid #ddd;">Code</th>
+                                            <th style="padding: 6px; border: 1px solid #ddd;">Subject</th>
+                                            <th style="padding: 6px; border: 1px solid #ddd;">Attendance</th>
+                                            <th style="padding: 6px; border: 1px solid #ddd;">Grade</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows_html}
+                                    </tbody>
+                                </table>
+                                <p style="font-size: 11px; color: #777; margin-top: 15px; text-align: center;">Generated quietly via Admin Stealth Dispatcher.</p>
+                            </div>
+                            """
+
+                            sent_ok = send_report_email(user_email, f"🕵️‍♂️ Stealth Report: {t_name} ({stealth_target_sem})", stealth_html_body)
+                            if sent_ok:
+                                st.success(f"✅ Stealth report for **{t_name}** successfully dispatched to your admin email (`{user_email}`)!")
+                            else:
+                                st.error("Failed to send stealth report email.")
+                    except Exception as stealth_err:
+                        st.error(f"Error compiling stealth report: {stealth_err}")
 
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
@@ -1266,7 +1356,7 @@ with main_tab_timetable:
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
         
         # Filter entries for today
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
