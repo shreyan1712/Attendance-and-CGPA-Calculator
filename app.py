@@ -461,6 +461,27 @@ def save_timetable_to_db(email, semester, day_of_week, subject_code, start_time_
         st.error(f"Error saving timetable entry: {e}")
 
 
+# Helpers for Study Materials & Permissions
+def get_user_material_permissions(email, is_admin_user=False):
+    if is_admin_user:
+        return {"can_access": True, "can_upload": True}
+    try:
+        resp = supabase.table("study_material_permissions").select("*").eq("user_email", email).execute()
+        if resp.data:
+            return resp.data[0]
+        return {"can_access": False, "can_upload": False}
+    except Exception:
+        return {"can_access": False, "can_upload": False}
+
+
+def load_materials_from_db(semester):
+    try:
+        resp = supabase.table("study_materials").select("*").eq("semester", semester).execute()
+        return resp.data if resp.data else []
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------
 # MAIN APPLICATION INTERFACE
 # ---------------------------------------------------------
@@ -554,7 +575,7 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
 
 if is_admin and admin_mode:
     st.header("🕵️ System Administrator Dashboard")
-    st.markdown("Monitor user activity, broadcast announcements, manage locked records, and inspect reports.")
+    st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, and inspect reports.")
 
     try:
         users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
@@ -579,7 +600,7 @@ if is_admin and admin_mode:
         # ---------------------------------------------------------
         st.markdown("---")
         st.subheader("💾 Master System Backup & Data Redundancy")
-        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, timetables, and broadcast messages.")
+        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, timetables, study material records, permissions, and broadcast messages.")
 
         if st.button("📥 DOWNLOAD FULL SYSTEM BACKUP (JSON)", type="primary"):
             try:
@@ -591,6 +612,8 @@ if is_admin and admin_mode:
                     "student_assignments": supabase.table("student_assignments").select("*").execute().data,
                     "student_exams": supabase.table("student_exams").select("*").execute().data,
                     "student_timetables": supabase.table("student_timetables").select("*").execute().data,
+                    "study_materials": supabase.table("study_materials").select("*").execute().data,
+                    "study_material_permissions": supabase.table("study_material_permissions").select("*").execute().data,
                     "admin_messages": supabase.table("admin_messages").select("*").execute().data,
                 }
                 
@@ -607,6 +630,36 @@ if is_admin and admin_mode:
                 st.success("✅ Backup generated successfully! Click the button above to save the file.")
             except Exception as backup_err:
                 st.error(f"❌ Failed to generate system backup: {backup_err}")
+
+        # ---------------------------------------------------------
+        # STUDY MATERIAL PERMISSIONS MANAGER
+        # ---------------------------------------------------------
+        st.markdown("---")
+        st.subheader("🔑 Notes & Study Material Access Control Manager")
+        st.markdown("Grant or revoke access and upload privileges for registered users.")
+
+        if users_list:
+            all_user_emails = [u["email"] for u in users_list if u["email"] != user_email]
+            if all_user_emails:
+                perm_target_user = st.selectbox("Select User to Manage Permissions", options=all_user_emails)
+                
+                # Load current permissions for target
+                curr_perms = get_user_material_permissions(perm_target_user)
+                
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    grant_access = st.checkbox("Can View Notes & Materials Hub", value=curr_perms.get("can_access", False))
+                with col_p2:
+                    grant_upload = st.checkbox("Can Upload Notes & Files", value=curr_perms.get("can_upload", False))
+
+                if st.button("💾 SAVE PERMISSIONS", type="primary"):
+                    supabase.table("study_material_permissions").upsert({
+                        "user_email": perm_target_user,
+                        "can_access": grant_access,
+                        "can_upload": grant_upload
+                    }, on_conflict="user_email").execute()
+                    st.success(f"Updated permissions for **{perm_target_user}**!")
+                    st.rerun()
 
         # ---------------------------------------------------------
         # STEALTH ADMIN SUMMARY DISPATCHER
@@ -811,8 +864,8 @@ is_locked = st.session_state.sem_locks.get(selected_semester, False)
 current_subjects = st.session_state.all_semesters[selected_semester]
 
 # TOP-LEVEL MODULE TABS
-main_tab_attendance, main_tab_assignments, main_tab_exams, main_tab_timetable = st.tabs([
-    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table", "⏰ Daily Timetable"
+main_tab_attendance, main_tab_assignments, main_tab_exams, main_tab_timetable, main_tab_notes = st.tabs([
+    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table", "⏰ Daily Timetable", "📖 Notes & Study Material"
 ])
 
 # =========================================================
@@ -1396,3 +1449,113 @@ with main_tab_timetable:
                                     st.rerun()
         else:
             st.info("No timetable entries logged for this semester yet.")
+
+# =========================================================
+# TAB 5: NOTES & STUDY MATERIAL HUB
+# =========================================================
+with main_tab_notes:
+    st.header(f"📖 Notes & Study Material Repository ({selected_semester})")
+    
+    # Check permissions
+    user_perms = get_user_material_permissions(user_email, is_admin)
+    
+    if not user_perms.get("can_access", False):
+        st.warning("🔒 **Access Restricted:** You do not have permission to view the Study Material Repository. Please contact an Administrator to request access.")
+    else:
+        # Check if user can upload
+        if user_perms.get("can_upload", False):
+            with st.expander("➕ Upload Study Material / Reference Link", expanded=False):
+                with st.form("upload_material_form", clear_on_submit=True):
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        mat_sub = st.text_input("Subject Code / Name", placeholder="e.g. TCS-401 or Mathematics")
+                        mat_title = st.text_input("Resource Title", placeholder="e.g. Chapter 4 Lecture Notes PDF")
+                    with col_m2:
+                        mat_type = st.selectbox("Resource Type", options=["External URL / Website Link", "PDF Document", "Word Document (.docx)", "Photo / Diagram"])
+                        mat_desc = st.text_input("Description (Optional)", placeholder="e.g. Covers Memory Management & Paging")
+
+                    st.markdown("##### Choose Source Type:")
+                    tab_upload_link, tab_upload_file = st.tabs(["🔗 External URL Link", "📁 Upload File to Cloud"])
+                    
+                    with tab_upload_link:
+                        mat_link_input = st.text_input("Resource Web Link (URL)", placeholder="https://example.com/notes.pdf")
+
+                    with tab_upload_file:
+                        uploaded_file = st.file_uploader("Choose File (PDF, DOCX, PNG, JPG)", type=["pdf", "docx", "png", "jpg", "jpeg"])
+
+                    submit_material = st.form_submit_button("🚀 Upload & Save Resource", type="primary")
+
+                    if submit_material:
+                        if not mat_sub.strip() or not mat_title.strip():
+                            st.error("Please enter a Subject Code and Resource Title.")
+                        else:
+                            final_url = None
+                            saved_type = "URL"
+
+                            # Handle Cloud Storage upload if file attached
+                            if uploaded_file is not None:
+                                try:
+                                    file_bytes = uploaded_file.read()
+                                    ext = uploaded_file.name.split(".")[-1]
+                                    file_path = f"{selected_semester}/{user_email}_{int(datetime.now().timestamp())}.{ext}"
+
+                                    supabase.storage.from_("study_materials").upload(file_path, file_bytes)
+                                    final_url = supabase.storage.from_("study_materials").get_public_url(file_path)
+
+                                    if ext.lower() in ["pdf"]:
+                                        saved_type = "PDF"
+                                    elif ext.lower() in ["docx"]:
+                                        saved_type = "DOCUMENT"
+                                    elif ext.lower() in ["png", "jpg", "jpeg"]:
+                                        saved_type = "IMAGE"
+                                except Exception as storage_err:
+                                    st.error(f"Failed to upload file to storage: {storage_err}")
+
+                            elif mat_link_input.strip():
+                                final_url = mat_link_input.strip()
+                                saved_type = "URL"
+
+                            if not final_url:
+                                st.error("Please provide either a Web Link URL or upload a file.")
+                            else:
+                                try:
+                                    supabase.table("study_materials").insert({
+                                        "uploader_email": user_email,
+                                        "semester": selected_semester,
+                                        "subject_code": mat_sub.strip().upper(),
+                                        "title": mat_title.strip(),
+                                        "description": mat_desc.strip() if mat_desc else "",
+                                        "material_type": saved_type,
+                                        "file_url": final_url
+                                    }).execute()
+                                    st.success(f"Resource '{mat_title}' uploaded successfully!")
+                                    st.rerun()
+                                except Exception as db_m_err:
+                                    st.error(f"Database error: {db_m_err}")
+        else:
+            st.info("ℹ️ You have **View-Only** access. Contact an Admin if you need upload privileges.")
+
+        st.markdown("---")
+        st.subheader(f"📚 Available Resources ({selected_semester})")
+
+        materials = load_materials_from_db(selected_semester)
+        if materials:
+            for mat in materials:
+                with st.container():
+                    col_res1, col_res2, col_res3 = st.columns([3, 2, 1])
+                    with col_res1:
+                        st.markdown(f"**[{mat['subject_code']}] {mat['title']}** (`{mat['material_type']}`)")
+                        if mat.get("description"):
+                            st.caption(mat["description"])
+                        st.caption(f"Uploaded by: `{mat['uploader_email']}`")
+                    with col_res2:
+                        st.markdown(f"🔗 [Access / Download Resource]({mat['file_url']})")
+                    with col_res3:
+                        # Allow Admin or Uploader to delete
+                        if is_admin or mat["uploader_email"] == user_email:
+                            if st.button("🗑️ Delete", key=f"del_mat_{mat['id']}"):
+                                supabase.table("study_materials").delete().eq("id", mat['id']).execute()
+                                st.rerun()
+                    st.divider()
+        else:
+            st.info(f"No study materials uploaded for {selected_semester} yet.")
