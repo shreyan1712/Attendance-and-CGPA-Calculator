@@ -2,9 +2,11 @@ import base64
 from datetime import datetime, date, timedelta, timezone
 import hashlib
 import hmac
+import io
 import json
 import math
 import random
+import zipfile
 import pandas as pd
 import plotly.express as px
 import pyotp
@@ -596,14 +598,15 @@ if is_admin and admin_mode:
             st.metric("Locked Semesters", locked_count)
 
         # ---------------------------------------------------------
-        # MASTER SYSTEM BACKUP FEATURE
+        # MASTER SYSTEM BACKUP FEATURE (WITH STUDY MATERIALS & LINKS ZIP)
         # ---------------------------------------------------------
         st.markdown("---")
-        st.subheader("💾 Master System Backup & Data Redundancy")
-        st.markdown("Download a complete, single JSON backup file containing all user accounts, attendance records, locks, assignments, exams, timetables, study material records, permissions, and broadcast messages.")
+        st.subheader("💾 Master System Backup & Full Asset Archive")
+        st.markdown("Download a complete, comprehensive zip archive containing your master JSON database backup, all physical study material files, and a text inventory of all saved web links.")
 
-        if st.button("📥 DOWNLOAD FULL SYSTEM BACKUP (JSON)", type="primary"):
+        if st.button("📥 DOWNLOAD FULL SYSTEM & ASSETS ARCHIVE (.ZIP)", type="primary"):
             try:
+                # 1. Fetch all database tables
                 backup_data = {
                     "backup_timestamp": datetime.now(timezone.utc).isoformat(),
                     "users": supabase.table("users").select("*").execute().data,
@@ -618,18 +621,54 @@ if is_admin and admin_mode:
                 }
                 
                 json_string = json.dumps(backup_data, indent=4, default=str)
-                file_name = f"student_hub_full_backup_{date.today()}.json"
+
+                # 2. Create In-Memory ZIP Archive
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    # Write the master JSON backup file
+                    zip_file.writestr("student_hub_full_backup.json", json_string)
+
+                    # 3. Process Study Materials (Files & Links)
+                    materials_list = backup_data.get("study_materials", [])
+                    links_inventory_lines = ["STUDENT HUB - EXTERNAL LINKS INVENTORY\n" + "="*40 + "\n"]
+
+                    for mat in materials_list:
+                        sem = mat.get("semester", "General")
+                        title = mat.get("title", "Untitled").replace("/", "_")
+                        mat_type = mat.get("material_type", "URL")
+                        file_url = mat.get("file_url", "")
+                        sub_code = mat.get("subject_code", "GEN")
+
+                        if mat_type == "URL" or not file_url.startswith("http"):
+                            # Record external links in text inventory
+                            links_inventory_lines.append(f"Semester: {sem}\nSubject: {sub_code}\nTitle: {title}\nURL: {file_url}\n{'-'*30}\n")
+                        else:
+                            # Try downloading physical file bytes from Supabase storage public URL
+                            try:
+                                resp = requests.get(file_url, timeout=10)
+                                if resp.status_code == 200:
+                                    ext = file_url.split(".")[-1].split("?")[0]
+                                    file_name_in_zip = f"{sem}/{sub_code}_{title}.{ext}"
+                                    zip_file.writestr(file_name_in_zip, resp.content)
+                            except Exception:
+                                pass
+
+                    # Write links inventory text file into zip
+                    zip_file.writestr("links_inventory.txt", "".join(links_inventory_lines))
+
+                zip_buffer.seek(0)
+                zip_filename = f"student_hub_complete_archive_{date.today()}.zip"
 
                 st.download_button(
-                    label="💾 Click Here to Save Backup File to Computer",
-                    data=json_string,
-                    file_name=file_name,
-                    mime="application/json",
+                    label="💾 Click Here to Save Complete Archive (.ZIP)",
+                    data=zip_buffer,
+                    file_name=zip_filename,
+                    mime="application/zip",
                     type="primary"
                 )
-                st.success("✅ Backup generated successfully! Click the button above to save the file.")
+                st.success("✅ Complete archive generated successfully! Click the button above to save your backup zip file.")
             except Exception as backup_err:
-                st.error(f"❌ Failed to generate system backup: {backup_err}")
+                st.error(f"❌ Failed to generate full system archive: {backup_err}")
 
         # ---------------------------------------------------------
         # STUDY MATERIAL PERMISSIONS MANAGER
@@ -1409,7 +1448,7 @@ with main_tab_timetable:
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
         
         # Filter entries for today
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
@@ -1551,7 +1590,23 @@ with main_tab_notes:
                             st.caption(mat["description"])
                         st.caption(f"Uploaded by: `{mat['uploader_email']}`")
                     with col_res2:
-                        st.markdown(f"🔗 [Access / Download Resource]({mat['file_url']})")
+                        st.markdown(f"🔗 [View / Open Link]({mat['file_url']})")
+                        
+                        # Direct binary download button inside Streamlit for uploaded files
+                        if mat["file_url"].startswith("http"):
+                            try:
+                                res = requests.get(mat["file_url"], timeout=5)
+                                if res.status_code == 200:
+                                    file_ext = mat["file_url"].split(".")[-1].split("?")[0]
+                                    file_name = f"{mat['subject_code']}_{mat['title'].replace(' ', '_')}.{file_ext}"
+                                    st.download_button(
+                                        label="💾 Download File",
+                                        data=res.content,
+                                        file_name=file_name,
+                                        key=f"dl_btn_{mat['id']}"
+                                    )
+                            except Exception:
+                                pass
                     with col_res3:
                         # Allow Admin or Uploader to delete
                         if is_admin or mat["uploader_email"] == user_email:
