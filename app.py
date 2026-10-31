@@ -1448,7 +1448,7 @@ with main_tab_timetable:
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
         
         # Filter entries for today
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
         
         if today_entries:
             for entry in today_entries:
