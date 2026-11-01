@@ -132,6 +132,8 @@ if "admin_unlocked" not in st.session_state:
     st.session_state.admin_unlocked = False
 if "show_admin_login" not in st.session_state:
     st.session_state.show_admin_login = False
+if "admin_active_tab" not in st.session_state:
+    st.session_state.admin_active_tab = True
 
 # ---------------------------------------------------------
 # GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
@@ -738,29 +740,30 @@ if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🕵️ Admin Controls")
     
-    # Toggle between Student View and Admin Panel without losing 2FA unlock
     if not st.session_state.admin_unlocked:
         if st.sidebar.button("🔐 Enter Admin Mode", type="primary", use_container_width=True):
             st.session_state.show_admin_login = True
             st.rerun()
         admin_mode = False
     else:
-        # Give admin a clean way to view normal pages OR lock admin mode completely
+        # Dynamically switch between opening the admin dashboard and viewing the student hub
         col_sb1, col_sb2 = st.sidebar.columns(2)
         with col_sb1:
-            if st.button("👁️ View Hub", use_container_width=True):
-                st.session_state.admin_active_tab = False
-                st.rerun()
+            if st.session_state.admin_active_tab:
+                if st.button("👁️ View Hub", use_container_width=True):
+                    st.session_state.admin_active_tab = False
+                    st.rerun()
+            else:
+                if st.button("🕵️ Admin Panel", type="primary", use_container_width=True):
+                    st.session_state.admin_active_tab = True
+                    st.rerun()
         with col_sb2:
             if st.button("🔒 Lock Admin", use_container_width=True):
                 st.session_state.admin_unlocked = False
                 st.session_state.show_admin_login = False
+                st.session_state.admin_active_tab = True
                 st.rerun()
         
-        # Check if admin is currently viewing the admin dashboard or student modules
-        if "admin_active_tab" not in st.session_state:
-            st.session_state.admin_active_tab = True
-            
         admin_mode = st.session_state.admin_active_tab
 else:
     admin_mode = False
