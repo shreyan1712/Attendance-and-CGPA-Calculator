@@ -125,6 +125,9 @@ if "reset_step" not in st.session_state:
     st.session_state.reset_step = 1
     st.session_state.reset_email = None
 
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Home"
+
 if not st.session_state.authenticated:
     st.markdown(
         """
@@ -222,6 +225,7 @@ if not st.session_state.authenticated:
                                     st.session_state.authenticated = True
                                     st.session_state.user_email = db_user["email"]
                                     st.session_state.user_name = db_user["name"]
+                                    st.session_state.current_page = "Home"
                                     st.success("Login successful! Loading dashboard...")
                                     st.rerun()
                                 else:
@@ -575,26 +579,12 @@ def load_materials_from_db(semester):
 
 
 # ---------------------------------------------------------
-# UNIFIED SIDEBAR NAVIGATION & SETTINGS
+# CLEAN SIDEBAR: ONLY GLOBAL SETTINGS & USER INFO
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 👋 Welcome, **{user_name}**")
 st.sidebar.markdown("---")
-
-# Main Page Selector (Unified Navigation)
-app_page = st.sidebar.radio(
-    "🧭 Navigation Hub",
-    options=[
-        "🏠 Home / Dashboard Overview",
-        "📚 Attendance & SGPA Manager",
-        "📝 Assignments & Tasks",
-        "📅 Exams & Timetable",
-        "⏰ Daily Schedule",
-        "📖 Notes & Study Material"
-    ]
-)
-
-st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Global Settings")
+
 selected_semester = st.sidebar.selectbox(
     "Active Semester", [f"Semester {i}" for i in range(1, 9)]
 )
@@ -633,7 +623,7 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# SECURE ADMIN PANEL & GOOGLE AUTHENTICATOR GATE
+# SECURE ADMIN PANEL & GOOGLE AUTHENTICATOR GATE (UNTOUCHED)
 # ---------------------------------------------------------
 admin_email_secret = st.secrets.get("admin_email", "")
 is_admin = admin_email_secret and user_email == admin_email_secret
@@ -832,14 +822,24 @@ st.session_state.all_semesters = load_data_from_db(user_email)
 is_locked = st.session_state.sem_locks.get(selected_semester, False)
 current_subjects = st.session_state.all_semesters[selected_semester]
 
+# Helper function for back button
+def render_back_button():
+    if st.button("🏠 Back to Home Dashboard", type="secondary"):
+        st.session_state.current_page = "Home"
+        st.rerun()
+
 # =========================================================
-# PAGE 1: HOME / DASHBOARD OVERVIEW
+# PAGE ROUTING (HOME vs MODULES)
 # =========================================================
-if app_page == "🏠 Home / Dashboard Overview":
+current_page = st.session_state.current_page
+
+# ---------------------------------------------------------
+# HOME PAGE
+# ---------------------------------------------------------
+if current_page == "Home":
     st.title("📚 Student Academic & Attendance Hub")
     st.markdown(f"Welcome back, **{user_name}**! Here is your quick academic overview.")
 
-    # Calculate overall CGPA
     overall_weighted_gp = 0.0
     overall_credits = 0
     total_subjects_count = 0
@@ -852,7 +852,6 @@ if app_page == "🏠 Home / Dashboard Overview":
 
     cgpa = (overall_weighted_gp / overall_credits) if overall_credits > 0 else 0.0
 
-    # Quick metric cards
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
         st.metric(label="Overall CGPA", value=f"{cgpa:.2f} / 10.0")
@@ -862,19 +861,32 @@ if app_page == "🏠 Home / Dashboard Overview":
         st.metric(label="Total Registered Subjects", value=total_subjects_count)
 
     st.markdown("---")
-    st.subheader("⚡ Quick Navigation Shortcuts")
-    st.markdown("Select any section from the sidebar or click below to quickly jump into your modules:")
+    st.subheader("⚡ Quick Navigation & Modules")
+    st.markdown("Click any button below to open the module:")
 
-    col_q1, col_q2, col_q3 = st.columns(3)
-    with col_q1:
-        st.markdown("### 📚 Attendance")
-        st.write("Track attendance percentage, calculate skips, and manage subject records.")
-    with col_q2:
-        st.markdown("### 📝 Assignments")
-        st.write("Monitor project deadlines, task countdowns, and submissions.")
-    with col_q3:
-        st.markdown("### 📖 Notes Hub")
-        st.write("Access lecture materials, PDFs, and uploaded reference notes.")
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    with col_btn1:
+        if st.button("📚 Attendance & SGPA Manager", use_container_width=True, type="primary"):
+            st.session_state.current_page = "Attendance"
+            st.rerun()
+    with col_btn2:
+        if st.button("📝 Assignments & Tasks", use_container_width=True, type="primary"):
+            st.session_state.current_page = "Assignments"
+            st.rerun()
+    with col_btn3:
+        if st.button("📅 Exams & Timetable", use_container_width=True, type="primary"):
+            st.session_state.current_page = "Exams"
+            st.rerun()
+
+    col_btn4, col_btn5, _ = st.columns(3)
+    with col_btn4:
+        if st.button("⏰ Daily Schedule", use_container_width=True, type="primary"):
+            st.session_state.current_page = "Schedule"
+            st.rerun()
+    with col_btn5:
+        if st.button("📖 Notes & Study Material", use_container_width=True, type="primary"):
+            st.session_state.current_page = "Notes"
+            st.rerun()
 
     st.markdown("---")
     st.subheader("📅 Today's Schedule Overview")
@@ -888,13 +900,13 @@ if app_page == "🏠 Home / Dashboard Overview":
     else:
         st.success(f"🎉 No classes scheduled for today ({current_day_name})!")
 
-# =========================================================
-# PAGE 2: ATTENDANCE & SGPA MANAGER
-# =========================================================
-elif app_page == "📚 Attendance & SGPA Manager":
+# ---------------------------------------------------------
+# ATTENDANCE & SGPA MANAGER PAGE
+# ---------------------------------------------------------
+elif current_page == "Attendance":
+    render_back_button()
     st.title("📚 Attendance & SGPA Management")
 
-    # Sub-navigation for Attendance inside the page
     att_sub_mode = st.radio(
         "Select Action",
         options=["📊 Calculation & Analytics Dashboard", "📌 Add New Subjects", "🔄 Update Existing Records"],
@@ -1096,7 +1108,6 @@ elif app_page == "📚 Attendance & SGPA Manager":
             fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Email Dispatcher Hub
             st.markdown("---")
             st.subheader("📧 Email Report Dispatcher")
             if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
@@ -1130,10 +1141,11 @@ elif app_page == "📚 Attendance & SGPA Manager":
         else:
             st.info(f"No subjects recorded for {selected_semester}.")
 
-# =========================================================
-# PAGE 3: ASSIGNMENTS & TASKS
-# =========================================================
-elif app_page == "📝 Assignments & Tasks":
+# ---------------------------------------------------------
+# ASSIGNMENTS & TASKS PAGE
+# ---------------------------------------------------------
+elif current_page == "Assignments":
+    render_back_button()
     st.title(f"📝 Assignment & Task Tracker ({selected_semester})")
     
     if not current_subjects:
@@ -1210,10 +1222,11 @@ elif app_page == "📝 Assignments & Tasks":
         else:
             st.info("No assignments recorded for this semester.")
 
-# =========================================================
-# PAGE 4: EXAMS & TIMETABLE
-# =========================================================
-elif app_page == "📅 Exams & Timetable":
+# ---------------------------------------------------------
+# EXAMS & TIMETABLE PAGE
+# ---------------------------------------------------------
+elif current_page == "Exams":
+    render_back_button()
     st.title(f"📅 Examination Schedule ({selected_semester})")
     
     if not current_subjects:
@@ -1269,10 +1282,11 @@ elif app_page == "📅 Exams & Timetable":
         else:
             st.info("No exam schedules logged.")
 
-# =========================================================
-# PAGE 5: DAILY SCHEDULE
-# =========================================================
-elif app_page == "⏰ Daily Schedule":
+# ---------------------------------------------------------
+# DAILY SCHEDULE PAGE
+# ---------------------------------------------------------
+elif current_page == "Schedule":
+    render_back_button()
     st.title(f"⏰ Daily Class Timetable ({selected_semester})")
     
     if not current_subjects:
@@ -1322,10 +1336,11 @@ elif app_page == "⏰ Daily Schedule":
         else:
             st.info(f"🎉 No classes scheduled for today ({current_day_name})!")
 
-# =========================================================
-# PAGE 6: NOTES & STUDY MATERIAL HUB
-# =========================================================
-elif app_page == "📖 Notes & Study Material":
+# ---------------------------------------------------------
+# NOTES & STUDY MATERIAL PAGE
+# ---------------------------------------------------------
+elif current_page == "Notes":
+    render_back_button()
     st.title(f"📖 Notes & Study Material Repository ({selected_semester})")
     
     user_perms = get_user_material_permissions(user_email, is_admin)
