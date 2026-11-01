@@ -128,7 +128,173 @@ if "reset_step" not in st.session_state:
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Home"
 
+# Persistent admin unlocked state across pages during session
+if "admin_unlocked" not in st.session_state:
+    st.session_state.admin_unlocked = False
+if "show_admin_login" not in st.session_state:
+    st.session_state.show_admin_login = False
+
+# ---------------------------------------------------------
+# GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    /* Main Background & Base Typography */
+    .stApp {
+        background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
+        color: #c9d1d9 !important;
+    }
+
+    /* Glassmorphism Cards: Metrics */
+    [data-testid="stMetric"] {
+        background: rgba(22, 27, 34, 0.7) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 16px !important;
+        padding: 1.4rem !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+    }
+
+    /* Vibrant Colored Metric Numbers */
+    [data-testid="stMetricValue"] {
+        background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        font-size: 2.2rem !important;
+        font-weight: 800 !important;
+        filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
+    }
+    
+    /* Glassmorphism Containers & Expanders */
+    div[data-testid="stExpander"] {
+        background: rgba(22, 27, 34, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+    }
+
+    /* Form Fields Glass Styling */
+    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
+        background-color: rgba(13, 17, 23, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 10px !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+        color: #c9d1d9 !important;
+    }
+
+    /* Sidebar Glass Divider */
+    [data-testid="stSidebar"] {
+        background-color: #0b0f15 !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+
+    /* Primary Glass Buttons */
+    .stButton button[kind="primary"] {
+        background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
+        border: 1px solid rgba(255, 183, 3, 0.4) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 15px rgba(217, 4, 41, 0.3) !important;
+        backdrop-filter: blur(6px) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
+# GLOBAL MAINTENANCE MODE CHECK (SUPABASE SETTINGS)
+# ---------------------------------------------------------
+def check_maintenance_mode():
+    try:
+        resp = supabase.table("system_settings").select("*").eq("key", "maintenance_mode").execute()
+        if resp.data:
+            return resp.data[0].get("value", False)
+    except Exception:
+        pass
+    return False
+
+def set_maintenance_mode(status: bool):
+    try:
+        supabase.table("system_settings").upsert({
+            "key": "maintenance_mode",
+            "value": status
+        }, on_conflict="key").execute()
+    except Exception as e:
+        st.error(f"Failed to update maintenance mode: {e}")
+
+is_maintenance = check_maintenance_mode()
+
+# If not authenticated, show login page
 if not st.session_state.authenticated:
+    if is_maintenance:
+        # Check if the person trying to log in is the admin
+        admin_email_secret = st.secrets.get("admin_email", "")
+        # Show maintenance notice with golden-orangish aesthetic
+        st.markdown(
+            """
+            <style>
+            .maintenance-container {
+                max-width: 600px;
+                margin: 4rem auto;
+                padding: 3rem;
+                background: rgba(14, 17, 23, 0.85) !important;
+                border: 2px solid #ffb703 !important;
+                border-radius: 20px !important;
+                box-shadow: 0 0 30px rgba(255, 183, 3, 0.25), 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+                backdrop-filter: blur(16px) !important;
+                text-align: center;
+            }
+            .maintenance-container h1 {
+                color: #ffb703 !important;
+                font-size: 2.2rem;
+                font-weight: 800;
+                margin-bottom: 1rem;
+            }
+            .maintenance-container p {
+                color: #c9d1d9;
+                font-size: 1.1rem;
+            }
+            </style>
+            <div class="maintenance-container">
+                <h1>🚧 SITE IS UNDER MAINTENANCE</h1>
+                <p>We are currently upgrading our systems and performing scheduled improvements. Please check back soon!</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        
+        # Allow admin login bypass during maintenance
+        with st.expander("🔐 Admin Emergency Login Bypass"):
+            with st.form("maint_admin_login"):
+                m_user = st.text_input("Admin Username / Email")
+                m_pass = st.text_input("Password", type="password")
+                m_sub = st.form_submit_button("Bypass & Log In", type="primary")
+                if m_sub:
+                    try:
+                        res = supabase.table("users").select("*").eq("email", m_user.strip()).execute()
+                        if not res.data:
+                            res = supabase.table("users").select("*").eq("username", m_user.strip()).execute()
+                        if res.data:
+                            u_rec = res.data[0]
+                            if u_rec["email"] == admin_email_secret and u_rec["password_hash"] == hash_password(m_pass):
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = u_rec["email"]
+                                st.session_state.user_name = u_rec["name"]
+                                st.session_state.current_page = "Home"
+                                st.success("Admin emergency bypass successful!")
+                                st.rerun()
+                            else:
+                                st.error("Invalid admin credentials.")
+                        else:
+                            st.error("User not found.")
+                    except Exception as err:
+                        st.error(f"Error: {err}")
+        st.stop()
+
     st.markdown(
         """
         <style>
@@ -219,12 +385,17 @@ if not st.session_state.authenticated:
                                 db_user = response.data[0]
                                 hashed_input = hash_password(login_pass)
                                 if db_user["password_hash"] == hashed_input:
-                                    st.session_state.authenticated = True
-                                    st.session_state.user_email = db_user["email"]
-                                    st.session_state.user_name = db_user["name"]
-                                    st.session_state.current_page = "Home"
-                                    st.success("Login successful! Loading dashboard...")
-                                    st.rerun()
+                                    # If maintenance mode is active, block non-admins
+                                    admin_email_secret = st.secrets.get("admin_email", "")
+                                    if is_maintenance and db_user["email"] != admin_email_secret:
+                                        st.error("🚧 SITE IS UNDER MAINTENANCE. Regular logins are currently disabled.")
+                                    else:
+                                        st.session_state.authenticated = True
+                                        st.session_state.user_email = db_user["email"]
+                                        st.session_state.user_name = db_user["name"]
+                                        st.session_state.current_page = "Home"
+                                        st.success("Login successful! Loading dashboard...")
+                                        st.rerun()
                                 else:
                                     st.error("Incorrect password. Please check your credentials.")
                             else:
@@ -368,83 +539,23 @@ if not st.session_state.authenticated:
 user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
+admin_email_secret = st.secrets.get("admin_email", "")
+is_admin = admin_email_secret and user_email == admin_email_secret
+
+# If maintenance mode is active, log out / block regular users immediately
+if is_maintenance and not is_admin:
+    st.session_state.authenticated = False
+    st.session_state.user_email = None
+    st.session_state.user_name = None
+    st.session_state.admin_unlocked = False
+    st.session_state.show_admin_login = False
+    st.rerun()
+
 # Update presence heartbeat (using UTC time)
 try:
     supabase.table("users").update({"last_seen": datetime.now(timezone.utc).isoformat()}).eq("email", user_email).execute()
 except Exception:
     pass
-
-# ---------------------------------------------------------
-# GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
-# ---------------------------------------------------------
-st.markdown(
-    """
-    <style>
-    /* Main Background & Base Typography */
-    .stApp {
-        background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
-        color: #c9d1d9 !important;
-    }
-
-    /* Glassmorphism Cards: Metrics */
-    [data-testid="stMetric"] {
-        background: rgba(22, 27, 34, 0.7) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 16px !important;
-        padding: 1.4rem !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
-    }
-
-    /* Vibrant Colored Metric Numbers */
-    [data-testid="stMetricValue"] {
-        background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        font-size: 2.2rem !important;
-        font-weight: 800 !important;
-        filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
-    }
-    
-    /* Glassmorphism Containers & Expanders */
-    div[data-testid="stExpander"] {
-        background: rgba(22, 27, 34, 0.6) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
-    }
-
-    /* Form Fields Glass Styling */
-    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
-        background-color: rgba(13, 17, 23, 0.85) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 10px !important;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
-        color: #c9d1d9 !important;
-    }
-
-    /* Sidebar Glass Divider */
-    [data-testid="stSidebar"] {
-        background-color: #0b0f15 !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
-    }
-
-    /* Primary Glass Buttons */
-    .stButton button[kind="primary"] {
-        background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
-        border: 1px solid rgba(255, 183, 3, 0.4) !important;
-        border-radius: 10px !important;
-        box-shadow: 0 4px 15px rgba(217, 4, 41, 0.3) !important;
-        backdrop-filter: blur(6px) !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 
 # ---------------------------------------------------------
 # CLOUD DATABASE HELPER FUNCTIONS
@@ -642,16 +753,8 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# SECURE ADMIN PANEL & GOOGLE AUTHENTICATOR GATE (UNTOUCHED)
+# SECURE ADMIN PANEL & PERSISTENT GOOGLE AUTHENTICATOR GATE
 # ---------------------------------------------------------
-admin_email_secret = st.secrets.get("admin_email", "")
-is_admin = admin_email_secret and user_email == admin_email_secret
-
-if "admin_unlocked" not in st.session_state:
-    st.session_state.admin_unlocked = False
-if "show_admin_login" not in st.session_state:
-    st.session_state.show_admin_login = False
-
 if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🕵️ Admin Controls")
@@ -669,7 +772,7 @@ if is_admin:
 else:
     admin_mode = False
 
-# Screen Takeover for Google Authenticator prompt
+# Screen Takeover for Google Authenticator prompt (only prompts once per login session)
 if is_admin and st.session_state.show_admin_login and not st.session_state.admin_unlocked:
     st.title("🔐 Secure Admin Authentication")
     st.markdown("Please enter your **Google Authenticator 6-digit code** to access the System Administrator Dashboard.")
@@ -704,6 +807,26 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
 if is_admin and admin_mode:
     st.header("🕵️ System Administrator Dashboard")
     st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, and inspect reports.")
+
+    # Maintenance Mode Switcher in Admin Panel
+    st.markdown("---")
+    st.subheader("🛠️ Maintenance Mode Control")
+    current_maint_status = check_maintenance_mode()
+    
+    col_m1, col_m2 = st.columns([2, 2])
+    with col_m1:
+        st.markdown(f"Current Status: **{'🔴 ACTIVE (Site Locked for Users)'}**" if current_maint_status else "Current Status: **🟢 NORMAL (Site Accessible)**")
+    with col_m2:
+        if current_maint_status:
+            if st.button("🟢 DISABLE MAINTENANCE MODE", type="primary", use_container_width=True):
+                set_maintenance_mode(False)
+                st.success("Maintenance mode disabled! Users can now log back in.")
+                st.rerun()
+        else:
+            if st.button("🔴 ENABLE MAINTENANCE MODE", type="primary", use_container_width=True):
+                set_maintenance_mode(True)
+                st.warning("Maintenance mode enabled! All users have been logged out/blocked.")
+                st.rerun()
 
     try:
         users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
@@ -1385,7 +1508,7 @@ elif current_page == "Schedule":
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
