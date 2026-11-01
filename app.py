@@ -114,7 +114,7 @@ def send_report_email(recipient_email, subject_line, report_html):
 
 
 # ---------------------------------------------------------
-# NATIVE SECURE AUTHENTICATION STATE
+# NATIVE SECURE AUTHENTICATION STATE & REFINED UI
 # ---------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -126,174 +126,243 @@ if "reset_step" not in st.session_state:
     st.session_state.reset_email = None
 
 if not st.session_state.authenticated:
-    st.title("📚 Student Academic & Attendance Hub")
-    st.markdown("### Secure Cloud Login & Registration Portal")
-
-    tab_login, tab_register, tab_forgot = st.tabs(
-        ["🔑 Login", "📝 Register New Account", "🔄 Forgot Password"]
+    # Custom CSS for gorgeous centered auth card and polished form controls
+    st.markdown(
+        """
+        <style>
+        .auth-container {
+            max-width: 500px;
+            margin: 2rem auto;
+            padding: 2.5rem;
+            background: rgba(14, 17, 23, 0.75);
+            border: 1px solid rgba(255, 183, 3, 0.3);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(8px);
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .auth-header h1 {
+            font-size: 1.8rem;
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .auth-header p {
+            color: #8d99ae;
+            font-size: 0.95rem;
+        }
+        .stForm [data-testid="stFormSubmitButton"] button {
+            width: 100%;
+            border-radius: 10px;
+            font-weight: 700;
+            padding: 0.6rem 1rem;
+            background: linear-gradient(135deg, #a00037, #d90429) !important;
+            color: white !important;
+            border: 2px solid #ffb703 !important;
+            box-shadow: 0 0 10px rgba(217, 4, 41, 0.4);
+        }
+        .stForm [data-testid="stFormSubmitButton"] button:hover {
+            transform: scale(1.01);
+            box-shadow: 0 0 15px #ffb703;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-    with tab_login:
-        with st.form("login_form"):
-            login_user = st.text_input("Username")
-            login_pass = st.text_input("Password", type="password")
-            submit_login = st.form_submit_button("Log In", type="primary")
+    st.markdown(
+        """
+        <div class="auth-header">
+            <h1>📚 Student Academic & Attendance Hub</h1>
+            <p>Secure Cloud Portal • Analytics, Timetables & Materials</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-            if submit_login:
-                if not login_user or not login_pass:
-                    st.error("Please enter both username and password.")
-                else:
-                    try:
-                        response = (
-                            supabase.table("users")
-                            .select("*")
-                            .eq("username", login_user.strip())
-                            .execute()
-                        )
-                        if response.data:
-                            db_user = response.data[0]
-                            hashed_input = hash_password(login_pass)
-                            if db_user["password_hash"] == hashed_input:
-                                st.session_state.authenticated = True
-                                st.session_state.user_email = db_user["email"]
-                                st.session_state.user_name = db_user["name"]
-                                st.success("Login successful! Loading dashboard...")
-                                st.rerun()
-                            else:
-                                st.error("Incorrect password.")
-                        else:
-                            st.error("Username does not exist.")
-                    except Exception as err:
-                        st.error(f"Database error during login: {err}")
+    col_spacer1, col_auth, col_spacer2 = st.columns([1, 2, 1])
 
-    with tab_register:
-        with st.form("register_form"):
-            new_user = st.text_input("Choose Username")
-            new_name = st.text_input("Full Name")
-            new_email = st.text_input("Email Address")
-            new_pass = st.text_input("Password", type="password")
-            submit_reg = st.form_submit_button("Sign Up")
+    with col_auth:
+        tab_login, tab_register, tab_forgot = st.tabs(
+            ["🔑 Login", "📝 Register", "🔄 Reset"]
+        )
 
-            if submit_reg:
-                if not new_user or not new_pass or not new_email or not new_name:
-                    st.error("Please fill in all fields.")
-                else:
-                    hashed_pass = hash_password(new_pass)
-                    try:
-                        supabase.table("users").insert(
-                            {
-                                "username": new_user.strip(),
-                                "name": new_name.strip(),
-                                "email": new_email.strip(),
-                                "password_hash": hashed_pass,
-                            }
-                        ).execute()
-                        st.success(
-                            "Account created successfully! You can now switch to the Login tab."
-                        )
-                    except Exception as err:
-                        st.error(
-                            f"Registration failed (Username or Email may already be taken): {err}"
-                        )
+        with tab_login:
+            st.markdown("### Welcome Back!")
+            with st.form("login_form"):
+                login_user = st.text_input("Username")
+                login_pass = st.text_input("Password", type="password")
+                submit_login = st.form_submit_button("Log In to Dashboard", type="primary")
 
-    with tab_forgot:
-        st.markdown("### Reset Your Password via Email OTP")
-
-        if st.session_state.reset_step == 1:
-            with st.form("forgot_step1_form"):
-                reset_email_input = st.text_input("Enter your Registered Email Address")
-                submit_send_otp = st.form_submit_button("Send Verification Code", type="primary")
-
-                if submit_send_otp:
-                    if not reset_email_input:
-                        st.error("Please enter your email address.")
+                if submit_login:
+                    if not login_user or not login_pass:
+                        st.error("Please enter both username and password.")
                     else:
                         try:
+                            clean_username = login_user.strip()
+                            # Query matching exact username or case-insensitive fallback if needed
                             response = (
                                 supabase.table("users")
                                 .select("*")
-                                .eq("email", reset_email_input.strip())
+                                .eq("username", clean_username)
                                 .execute()
                             )
+                            if not response.data:
+                                # Try matching by email if username input looks like an email
+                                response = (
+                                    supabase.table("users")
+                                    .select("*")
+                                    .eq("email", clean_username)
+                                    .execute()
+                                )
+
                             if response.data:
                                 db_user = response.data[0]
-                                user_email_db = db_user["email"]
-                                
-                                otp = str(random.randint(100000, 999999))
-                                expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-                                
-                                supabase.table("users").update({
-                                    "reset_otp": otp,
-                                    "otp_expiry": expiry
-                                }).eq("email", user_email_db).execute()
-
-                                email_sent = send_otp_email(user_email_db, otp)
-                                if email_sent:
-                                    st.session_state.reset_step = 2
-                                    st.session_state.reset_email = user_email_db
-                                    masked_email = user_email_db[:3] + "****" + user_email_db[user_email_db.find("@"):]
-                                    st.success(f"Verification code sent to registered email: {masked_email}")
+                                hashed_input = hash_password(login_pass)
+                                if db_user["password_hash"] == hashed_input:
+                                    st.session_state.authenticated = True
+                                    st.session_state.user_email = db_user["email"]
+                                    st.session_state.user_name = db_user["name"]
+                                    st.success("Login successful! Loading dashboard...")
                                     st.rerun()
                                 else:
-                                    st.error("Failed to send verification email. Please try again.")
+                                    st.error("Incorrect password. Please check your credentials.")
                             else:
-                                st.error("No account found with this email address.")
+                                st.error("Username or email does not exist.")
                         except Exception as err:
-                            st.error(f"Database error: {err}")
+                            st.error(f"Database error during login: {err}")
 
-        elif st.session_state.reset_step == 2:
-            with st.form("forgot_step2_form"):
-                st.info(f"Resetting password for email: **{st.session_state.reset_email}**")
-                entered_otp = st.text_input("Enter 6-digit OTP Code")
-                new_reset_pass = st.text_input("New Password", type="password")
-                confirm_reset_pass = st.text_input("Confirm New Password", type="password")
-                
-                col_sub, col_back = st.columns(2)
-                with col_sub:
-                    submit_verify = st.form_submit_button("Verify & Update Password", type="primary")
-                with col_back:
-                    submit_cancel = st.form_submit_button("Cancel / Start Over")
+        with tab_register:
+            st.markdown("### Create New Account")
+            with st.form("register_form"):
+                new_user = st.text_input("Choose Username")
+                new_name = st.text_input("Full Name")
+                new_email = st.text_input("Email Address")
+                new_pass = st.text_input("Password", type="password")
+                submit_reg = st.form_submit_button("Create Account")
 
-                if submit_cancel:
-                    st.session_state.reset_step = 1
-                    st.session_state.reset_email = None
-                    st.rerun()
-
-                if submit_verify:
-                    if not entered_otp or not new_reset_pass or not confirm_reset_pass:
+                if submit_reg:
+                    if not new_user or not new_pass or not new_email or not new_name:
                         st.error("Please fill in all fields.")
-                    elif new_reset_pass != confirm_reset_pass:
-                        st.error("New passwords do not match.")
                     else:
+                        hashed_pass = hash_password(new_pass)
                         try:
-                            res = supabase.table("users").select("*").eq("email", st.session_state.reset_email).execute()
-                            if res.data:
-                                u_data = res.data[0]
-                                db_otp = u_data.get("reset_otp")
-                                db_expiry = u_data.get("otp_expiry")
-                                
-                                now = datetime.now(timezone.utc)
-                                expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
-
-                                if entered_otp.strip() != str(db_otp):
-                                    st.error("Invalid OTP code.")
-                                elif now > expiry_time:
-                                    st.error("OTP has expired. Please request a new one.")
-                                else:
-                                    new_hashed_pass = hash_password(new_reset_pass)
-                                    supabase.table("users").update({
-                                        "password_hash": new_hashed_pass,
-                                        "reset_otp": None,
-                                        "otp_expiry": None
-                                    }).eq("email", st.session_state.reset_email).execute()
-                                    
-                                    st.success("Password successfully updated! You can now log in.")
-                                    st.session_state.reset_step = 1
-                                    st.session_state.reset_email = None
-                            else:
-                                st.error("User not found.")
+                            supabase.table("users").insert(
+                                {
+                                    "username": new_user.strip(),
+                                    "name": new_name.strip(),
+                                    "email": new_email.strip(),
+                                    "password_hash": hashed_pass,
+                                }
+                            ).execute()
+                            st.success(
+                                "Account created successfully! Switch to the Login tab."
+                            )
                         except Exception as err:
-                            st.error(f"Database error during update: {err}")
+                            st.error(
+                                f"Registration failed (Username/Email taken): {err}"
+                            )
+
+        with tab_forgot:
+            st.markdown("### Password Recovery")
+
+            if st.session_state.reset_step == 1:
+                with st.form("forgot_step1_form"):
+                    reset_email_input = st.text_input("Registered Email Address")
+                    submit_send_otp = st.form_submit_button("Send OTP Code", type="primary")
+
+                    if submit_send_otp:
+                        if not reset_email_input:
+                            st.error("Please enter your email address.")
+                        else:
+                            try:
+                                response = (
+                                    supabase.table("users")
+                                    .select("*")
+                                    .eq("email", reset_email_input.strip())
+                                    .execute()
+                                )
+                                if response.data:
+                                    db_user = response.data[0]
+                                    user_email_db = db_user["email"]
+                                    
+                                    otp = str(random.randint(100000, 999999))
+                                    expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+                                    
+                                    supabase.table("users").update({
+                                        "reset_otp": otp,
+                                        "otp_expiry": expiry
+                                    }).eq("email", user_email_db).execute()
+
+                                    email_sent = send_otp_email(user_email_db, otp)
+                                    if email_sent:
+                                        st.session_state.reset_step = 2
+                                        st.session_state.reset_email = user_email_db
+                                        masked_email = user_email_db[:3] + "****" + user_email_db[user_email_db.find("@"):]
+                                        st.success(f"OTP sent to: {masked_email}")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to send email. Try again.")
+                                else:
+                                    st.error("No account found with this email.")
+                            except Exception as err:
+                                st.error(f"Database error: {err}")
+
+            elif st.session_state.reset_step == 2:
+                with st.form("forgot_step2_form"):
+                    st.info(f"Resetting for: **{st.session_state.reset_email}**")
+                    entered_otp = st.text_input("Enter 6-digit OTP")
+                    new_reset_pass = st.text_input("New Password", type="password")
+                    confirm_reset_pass = st.text_input("Confirm Password", type="password")
+                    
+                    col_sub, col_back = st.columns(2)
+                    with col_sub:
+                        submit_verify = st.form_submit_button("Update Password", type="primary")
+                    with col_back:
+                        submit_cancel = st.form_submit_button("Cancel")
+
+                    if submit_cancel:
+                        st.session_state.reset_step = 1
+                        st.session_state.reset_email = None
+                        st.rerun()
+
+                    if submit_verify:
+                        if not entered_otp or not new_reset_pass or not confirm_reset_pass:
+                            st.error("Please fill in all fields.")
+                        elif new_reset_pass != confirm_reset_pass:
+                            st.error("Passwords do not match.")
+                        else:
+                            try:
+                                res = supabase.table("users").select("*").eq("email", st.session_state.reset_email).execute()
+                                if res.data:
+                                    u_data = res.data[0]
+                                    db_otp = u_data.get("reset_otp")
+                                    db_expiry = u_data.get("otp_expiry")
+                                    
+                                    now = datetime.now(timezone.utc)
+                                    expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
+
+                                    if entered_otp.strip() != str(db_otp):
+                                        st.error("Invalid OTP code.")
+                                    elif now > expiry_time:
+                                        st.error("OTP has expired.")
+                                    else:
+                                        new_hashed_pass = hash_password(new_reset_pass)
+                                        supabase.table("users").update({
+                                            "password_hash": new_hashed_pass,
+                                            "reset_otp": None,
+                                            "otp_expiry": None
+                                        }).eq("email", st.session_state.reset_email).execute()
+                                        
+                                        st.success("Password successfully updated! Please log in.")
+                                        st.session_state.reset_step = 1
+                                        st.session_state.reset_email = None
+                                else:
+                                    st.error("User not found.")
+                            except Exception as err:
+                                st.error(f"Error during update: {err}")
 
     st.stop()
 
@@ -394,7 +463,6 @@ def save_lock_to_db(email, semester, is_locked):
     ).execute()
 
 
-# Helpers for Assignments & Exams
 def load_assignments_from_db(email, semester):
     try:
         resp = supabase.table("student_assignments").select("*").eq("user_email", email).eq("semester", semester).execute()
@@ -439,7 +507,6 @@ def save_exam_to_db(email, semester, subject_code, exam_type, exam_date_str, syl
         st.error(f"Error saving exam: {e}")
 
 
-# Helpers for Timetable
 def load_timetable_from_db(email, semester):
     try:
         resp = supabase.table("student_timetables").select("*").eq("user_email", email).eq("semester", semester).execute()
@@ -463,7 +530,6 @@ def save_timetable_to_db(email, semester, day_of_week, subject_code, start_time_
         st.error(f"Error saving timetable entry: {e}")
 
 
-# Helpers for Study Materials & Permissions
 def get_user_material_permissions(email, is_admin_user=False):
     if is_admin_user:
         return {"can_access": True, "can_upload": True}
@@ -597,16 +663,13 @@ if is_admin and admin_mode:
             locked_count = len([l for l in locks_list if l.get("is_locked")])
             st.metric("Locked Semesters", locked_count)
 
-        # ---------------------------------------------------------
-        # MASTER SYSTEM BACKUP FEATURE (WITH STUDY MATERIALS & LINKS ZIP)
-        # ---------------------------------------------------------
+        # Master System Backup Feature
         st.markdown("---")
         st.subheader("💾 Master System Backup & Full Asset Archive")
         st.markdown("Download a complete, comprehensive zip archive containing your master JSON database backup, all physical study material files, and a text inventory of all saved web links.")
 
         if st.button("📥 DOWNLOAD FULL SYSTEM & ASSETS ARCHIVE (.ZIP)", type="primary"):
             try:
-                # 1. Fetch all database tables
                 backup_data = {
                     "backup_timestamp": datetime.now(timezone.utc).isoformat(),
                     "users": supabase.table("users").select("*").execute().data,
@@ -622,13 +685,10 @@ if is_admin and admin_mode:
                 
                 json_string = json.dumps(backup_data, indent=4, default=str)
 
-                # 2. Create In-Memory ZIP Archive
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    # Write the master JSON backup file
                     zip_file.writestr("student_hub_full_backup.json", json_string)
 
-                    # 3. Process Study Materials (Files & Links)
                     materials_list = backup_data.get("study_materials", [])
                     links_inventory_lines = ["STUDENT HUB - EXTERNAL LINKS INVENTORY\n" + "="*40 + "\n"]
 
@@ -640,10 +700,8 @@ if is_admin and admin_mode:
                         sub_code = mat.get("subject_code", "GEN")
 
                         if mat_type == "URL" or not file_url.startswith("http"):
-                            # Record external links in text inventory
                             links_inventory_lines.append(f"Semester: {sem}\nSubject: {sub_code}\nTitle: {title}\nURL: {file_url}\n{'-'*30}\n")
                         else:
-                            # Try downloading physical file bytes from Supabase storage public URL
                             try:
                                 resp = requests.get(file_url, timeout=10)
                                 if resp.status_code == 200:
@@ -653,7 +711,6 @@ if is_admin and admin_mode:
                             except Exception:
                                 pass
 
-                    # Write links inventory text file into zip
                     zip_file.writestr("links_inventory.txt", "".join(links_inventory_lines))
 
                 zip_buffer.seek(0)
@@ -666,13 +723,11 @@ if is_admin and admin_mode:
                     mime="application/zip",
                     type="primary"
                 )
-                st.success("✅ Complete archive generated successfully! Click the button above to save your backup zip file.")
+                st.success("✅ Complete archive generated successfully!")
             except Exception as backup_err:
                 st.error(f"❌ Failed to generate full system archive: {backup_err}")
 
-        # ---------------------------------------------------------
-        # STUDY MATERIAL PERMISSIONS MANAGER
-        # ---------------------------------------------------------
+        # Study Material Permissions Manager
         st.markdown("---")
         st.subheader("🔑 Notes & Study Material Access Control Manager")
         st.markdown("Grant or revoke access and upload privileges for registered users.")
@@ -681,8 +736,6 @@ if is_admin and admin_mode:
             all_user_emails = [u["email"] for u in users_list if u["email"] != user_email]
             if all_user_emails:
                 perm_target_user = st.selectbox("Select User to Manage Permissions", options=all_user_emails)
-                
-                # Load current permissions for target
                 curr_perms = get_user_material_permissions(perm_target_user)
                 
                 col_p1, col_p2 = st.columns(2)
@@ -700,9 +753,7 @@ if is_admin and admin_mode:
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
 
-        # ---------------------------------------------------------
-        # STEALTH ADMIN SUMMARY DISPATCHER
-        # ---------------------------------------------------------
+        # Stealth Admin Summary Dispatcher
         st.markdown("---")
         st.subheader("🕵️‍♂️ Stealth User Summary Dispatcher")
         st.markdown("Quietly compile and dispatch any student's academic performance report directly to your admin email address without notifying the user.")
@@ -720,19 +771,15 @@ if is_admin and admin_mode:
 
                 if submit_stealth:
                     try:
-                        # Fetch target user's details
                         t_user_resp = supabase.table("users").select("name").eq("email", stealth_target_email).execute()
                         t_name = t_user_resp.data[0]["name"] if t_user_resp.data else "Unknown Student"
 
-                        # Fetch target user's attendance/subjects for that semester
                         t_att_resp = supabase.table("student_attendance").select("*").eq("user_email", stealth_target_email).eq("semester", stealth_target_sem).execute()
-                        
                         subjects = t_att_resp.data[0]["subjects_json"] if t_att_resp.data and t_att_resp.data[0].get("subjects_json") else []
 
                         if not subjects:
                             st.warning(f"No subject data found for {stealth_target_email} in {stealth_target_sem}.")
                         else:
-                            # Calculate SGPA & rows
                             weighted_gp = 0.0
                             total_cred = 0
                             rows_html = ""
@@ -764,7 +811,6 @@ if is_admin and admin_mode:
                                 <p><b>Student Name:</b> {t_name} ({stealth_target_email})</p>
                                 <p><b>Semester:</b> {stealth_target_sem}</p>
                                 <p><b>Calculated SGPA:</b> {target_sgpa:.2f} / 10.0</p>
-                                
                                 <h4 style="margin-top: 15px;">Subject Breakdown:</h4>
                                 <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
                                     <thead>
@@ -779,13 +825,12 @@ if is_admin and admin_mode:
                                         {rows_html}
                                     </tbody>
                                 </table>
-                                <p style="font-size: 11px; color: #777; margin-top: 15px; text-align: center;">Generated quietly via Admin Stealth Dispatcher.</p>
                             </div>
                             """
 
                             sent_ok = send_report_email(user_email, f"🕵️‍♂️ Stealth Report: {t_name} ({stealth_target_sem})", stealth_html_body)
                             if sent_ok:
-                                st.success(f"✅ Stealth report for **{t_name}** successfully dispatched to your admin email (`{user_email}`)!")
+                                st.success(f"✅ Stealth report for **{t_name}** successfully dispatched!")
                             else:
                                 st.error("Failed to send stealth report email.")
                     except Exception as stealth_err:
@@ -793,8 +838,6 @@ if is_admin and admin_mode:
 
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
-        st.markdown("Send targeted messages to all students or specific individual accounts with read confirmation tracking.")
-        
         all_emails = [u["email"] for u in users_list]
         msg_target = st.selectbox("Select Target Audience", options=["ALL"] + all_emails)
         msg_text = st.text_area("Type Announcement / Message Text")
@@ -812,20 +855,8 @@ if is_admin and admin_mode:
             else:
                 st.error("Message text cannot be empty.")
 
-        # Display Message Read Tracker
-        try:
-            sent_msgs = supabase.table("admin_messages").select("*").execute()
-            if sent_msgs.data:
-                st.markdown("##### Sent Messages Status Tracker")
-                for s_m in sent_msgs.data:
-                    readers = ", ".join(s_m.get("read_by", [])) if s_m.get("read_by") else "None yet"
-                    st.caption(f"🆔 **Message #{s_m['id']}** to `{s_m['target_email']}`: '{s_m['message_text']}' | **Read by:** {readers}")
-        except Exception:
-            pass
-
         st.markdown("---")
         st.subheader("📡 Live Presence Monitor")
-        
         if users_list:
             now_utc = datetime.now(timezone.utc)
             for u in users_list:
@@ -843,8 +874,6 @@ if is_admin and admin_mode:
                         elif diff_sec >= 20:
                             mins = max(1, int(diff_sec / 60))
                             status_label = f"🕒 Last seen {mins}m ago"
-                        else:
-                            status_label = "🔴 Offline"
                     except Exception:
                         pass
 
@@ -990,12 +1019,6 @@ with main_tab_attendance:
 
         if is_locked:
             st.warning(f"🔒 {selected_semester} is permanently fixed/locked. Records cannot be updated.")
-            if current_subjects:
-                st.markdown("---")
-                st.subheader(f"Locked Records ({selected_semester})")
-                for idx, subj in enumerate(current_subjects, 1):
-                    att_date = subj.get("attendance_date", str(date.today()))
-                    st.markdown(f"{idx}. **[{subj['code']}] {subj['name']}** | Grade Point: **{subj['grade_point']}** | Attended: {subj['attended']}/{subj['conducted']} | Last Updated: `{att_date}`")
         else:
             st.markdown(f"Update your attendance or final grade points for **{selected_semester}**.")
 
@@ -1072,7 +1095,7 @@ with main_tab_attendance:
                     st.success("Records updated successfully!")
                     st.rerun()
             else:
-                st.info(f"No subjects found for {selected_semester}. Please add subjects first.")
+                st.info(f"No subjects found for {selected_semester}.")
 
     elif nav_mode == "Calculation Dashboard":
         st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
@@ -1089,7 +1112,7 @@ with main_tab_attendance:
                     overall_credits += s["credits"]
 
         if not has_any_subjects:
-            st.warning("No subjects found in any semester. Please add subjects first.")
+            st.warning("No subjects found in any semester.")
         else:
             cgpa = (overall_weighted_gp / overall_credits) if overall_credits > 0 else 0.0
             col_m1, col_m2 = st.columns(2)
@@ -1173,8 +1196,6 @@ with main_tab_attendance:
                 # Email Dispatcher Hub
                 st.markdown("---")
                 st.subheader("📧 Email Report Dispatcher")
-                st.markdown(f"Dispatch your complete academic performance report for **{selected_semester}** directly to your registered email (`{user_email}`).")
-
                 if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
                     subject_text = f"📊 Academic Report - {selected_semester}"
                     rows_html = ""
@@ -1191,41 +1212,21 @@ with main_tab_attendance:
 
                     html_body = f"""
                     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-                        <h2 style="color: #d90429; text-align: center;">🎓 Student Academic & Attendance Hub</h2>
-                        <hr style="border: none; border-top: 1px solid #eee;" />
+                        <h2 style="color: #d90429; text-align: center;">🎓 Student Academic Hub</h2>
                         <p>Hello <b>{user_name}</b>,</p>
                         <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
-                        
                         <ul style="list-style: none; padding: 0;">
                             <li>📅 <b>Semester:</b> {selected_semester}</li>
                             <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
                             <li>🏆 <b>Overall CGPA:</b> {cgpa:.2f} / 10.0</li>
-                            <li>🎯 <b>Target Attendance:</b> {default_target}%</li>
                         </ul>
-
-                        <h3 style="margin-top: 20px;">Subject Breakdown</h3>
-                        <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
-                            <thead>
-                                <tr style="background-color: #f8f9fa;">
-                                    <th style="padding: 8px; border: 1px solid #ddd;">Code</th>
-                                    <th style="padding: 8px; border: 1px solid #ddd;">Subject</th>
-                                    <th style="padding: 8px; border: 1px solid #ddd;">Attendance</th>
-                                    <th style="padding: 8px; border: 1px solid #ddd;">Status</th>
-                                    <th style="padding: 8px; border: 1px solid #ddd;">Grade</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rows_html}
-                            </tbody>
-                        </table>
                     </div>
                     """
-
                     sent = send_report_email(user_email, subject_text, html_body)
                     if sent:
                         st.success(f"Successfully sent the report to **{user_email}**!")
                     else:
-                        st.error("Failed to send email. Please check your configuration.")
+                        st.error("Failed to send email.")
 
                 # Semester Fixation
                 st.markdown("---")
@@ -1249,13 +1250,13 @@ with main_tab_attendance:
                     st.success(f"🔒 Status: {selected_semester} is permanently fixed and locked.")
                 else:
                     if not all_grades_entered:
-                        st.info("ℹ️ The **FIX** button will become available once final grade points (> 0.0) are entered for all subjects.")
+                        st.info("ℹ️ Enter final grade points (> 0.0) for all subjects to unlock fixation.")
                         st.button("🔒 FIX SEMESTER DATA", disabled=True, use_container_width=True)
                     else:
                         if st.button("🔒 FIX SEMESTER DATA", type="primary", use_container_width=True):
                             confirm_fix_dialog(selected_semester)
             else:
-                st.info(f"No subjects recorded for {selected_semester} yet.")
+                st.info(f"No subjects recorded for {selected_semester}.")
 
 # =========================================================
 # TAB 2: ASSIGNMENTS & TASKS
@@ -1264,7 +1265,7 @@ with main_tab_assignments:
     st.header(f"📝 Assignment & Task Tracker ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance tab first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
@@ -1273,12 +1274,12 @@ with main_tab_assignments:
                 col_a1, col_a2 = st.columns([2, 2])
                 with col_a1:
                     sel_sub_str = st.selectbox("Select Subject", options=subject_options)
-                    asgn_title = st.text_input("Assignment Title / Description", placeholder="e.g. Lab Report #3")
+                    asgn_title = st.text_input("Assignment Title", placeholder="e.g. Lab Report #3")
                 with col_a2:
-                    due_date_val = st.date_input("Submission Due Date", value=date.today() + timedelta(days=7))
-                    due_time_val = st.time_input("Submission Due Time", value=datetime.strptime("23:59", "%H:%M").time())
+                    due_date_val = st.date_input("Due Date", value=date.today() + timedelta(days=7))
+                    due_time_val = st.time_input("Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                assignment_link = st.text_input("Assignment Link, URL or File Path (Optional)", placeholder="e.g. https://github.com/... or C:\\path\\to\\file")
+                assignment_link = st.text_input("Assignment Link or File Path (Optional)")
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
                 if submit_asgn:
@@ -1287,14 +1288,12 @@ with main_tab_assignments:
                     else:
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
-                        
                         save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), assignment_link.strip() if assignment_link else None)
-                        st.success(f"Added assignment '{asgn_title}' for {sub_code}!")
+                        st.success(f"Added assignment '{asgn_title}'!")
                         st.rerun()
 
         st.markdown("---")
-        st.subheader("📋 Active Assignments & Live Countdown Timers")
-        
+        st.subheader("📋 Active Assignments")
         assignments = load_assignments_from_db(user_email, selected_semester)
         if assignments:
             now_ist = get_ist_time()
@@ -1316,7 +1315,7 @@ with main_tab_assignments:
                     timer_str = f"⏳ **{days}d {hours}h {minutes}m remaining**"
                     status_badge = "🟢 In Progress"
                 else:
-                    timer_str = "⚠️ **OVERDUE / PASSED**"
+                    timer_str = "⚠️ **OVERDUE**"
                     status_badge = "🔴 Past Due"
 
                 with st.container():
@@ -1325,7 +1324,7 @@ with main_tab_assignments:
                         st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
                         if f_url:
                             if f_url.startswith("http://") or f_url.startswith("https://"):
-                                st.markdown(f"🔗 [Open Reference Link]({f_url})")
+                                st.markdown(f"🔗 [Open Link]({f_url})")
                             else:
                                 st.code(f_url, language=None)
                     with col_b2:
@@ -1337,16 +1336,16 @@ with main_tab_assignments:
                             st.rerun()
                     st.divider()
         else:
-            st.info("No assignments recorded for this semester yet.")
+            st.info("No assignments recorded for this semester.")
 
 # =========================================================
 # TAB 3: EXAMS & TIME TABLE
 # =========================================================
 with main_tab_exams:
-    st.header(f"📅 Examination Schedule & Time Table ({selected_semester})")
+    st.header(f"📅 Examination Schedule ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance tab first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
@@ -1360,19 +1359,17 @@ with main_tab_exams:
                     exam_date_val = st.date_input("Exam Date", value=date.today() + timedelta(days=14))
                     exam_time_val = st.time_input("Exam Start Time", value=datetime.strptime("10:00", "%H:%M").time())
                 
-                exam_syllabus = st.text_area("Syllabus Outline / Topics Covered", placeholder="e.g. Units 1 to 3, Memory Management, Scheduling Algorithms")
+                exam_syllabus = st.text_area("Syllabus Outline", placeholder="e.g. Units 1 to 3")
                 submit_exam = st.form_submit_button("Save Exam Schedule", type="primary")
                 
                 if submit_exam:
                     sub_code = sel_sub_exam.split("]")[0].replace("[", "")
                     combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
                     save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
-                    st.success(f"Scheduled {exam_type} for {sub_code}!")
+                    st.success(f"Scheduled {exam_type}!")
                     st.rerun()
 
         st.markdown("---")
-        st.subheader("🗓️ Semester Examination Time Table")
-        
         exams = load_exams_from_db(user_email, selected_semester)
         if exams:
             exam_rows = []
@@ -1386,24 +1383,19 @@ with main_tab_exams:
                     "Date": dt_obj.strftime("%Y-%m-%d"),
                     "Time": dt_obj.strftime("%I:%M %p"),
                 })
+            st.dataframe(pd.DataFrame(exam_rows).sort_values("Date"), use_container_width=True)
             
-            ex_df = pd.DataFrame(exam_rows).sort_values("Date")
-            st.dataframe(ex_df, use_container_width=True)
-            
-            st.markdown("---")
-            st.subheader("📖 Detailed Exam Breakdown & Syllabus")
             for ex in exams:
                 dt_obj = datetime.fromisoformat(ex["exam_date"])
                 if dt_obj.tzinfo is not None:
                     dt_obj = dt_obj.astimezone(IST)
                 with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
-                    st.markdown(f"**Syllabus Outline:**")
                     st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
                     if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
                         supabase.table("student_exams").delete().eq("id", ex['id']).execute()
                         st.rerun()
         else:
-            st.info("No exam schedules logged for this semester yet.")
+            st.info("No exam schedules logged.")
 
 # =========================================================
 # TAB 4: DAILY TIMETABLE
@@ -1412,7 +1404,7 @@ with main_tab_timetable:
     st.header(f"⏰ Daily Class Timetable ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ No subjects added for this semester yet. Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance tab first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
@@ -1420,74 +1412,43 @@ with main_tab_timetable:
             with st.form("add_timetable_form", clear_on_submit=True):
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
-                    tt_day = st.selectbox("Day of the Week", options=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-                    tt_sub = st.selectbox("Select Subject", options=subject_options)
+                    tt_day = st.selectbox("Day", options=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+                    tt_sub = st.selectbox("Subject", options=subject_options)
                 with col_t2:
                     tt_start = st.time_input("Start Time", value=datetime.strptime("09:00", "%H:%M").time())
                     tt_end = st.time_input("End Time", value=datetime.strptime("10:00", "%H:%M").time())
                 
-                tt_room = st.text_input("Room / Lecture Hall (Optional)", placeholder="e.g. LH-302 or Lab-2")
+                tt_room = st.text_input("Room / Lecture Hall", placeholder="e.g. LH-302")
                 submit_tt = st.form_submit_button("Add to Timetable", type="primary")
                 
                 if submit_tt:
                     sub_code = tt_sub.split("]")[0].replace("[", "")
-                    start_str = tt_start.strftime("%I:%M %p")
-                    end_str = tt_end.strftime("%I:%M %p")
-                    
-                    save_timetable_to_db(user_email, selected_semester, tt_day, sub_code, start_str, end_str, tt_room.strip() if tt_room else "N/A")
-                    st.success(f"Added {sub_code} to {tt_day}'s timetable!")
+                    save_timetable_to_db(user_email, selected_semester, tt_day, sub_code, tt_start.strftime("%I:%M %p"), tt_end.strftime("%I:%M %p"), tt_room.strip() if tt_room else "N/A")
+                    st.success("Added to timetable!")
                     st.rerun()
 
         st.markdown("---")
-        
-        # Get current day of the week in IST
         current_day_name = get_ist_time().strftime("%A")
-        
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        
-        # Filter entries for today
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
                 with st.container():
-                    col_card1, col_card2, col_card3 = st.columns([2, 3, 1])
-                    with col_card1:
+                    col_c1, col_c2, col_c3 = st.columns([2, 3, 1])
+                    with col_c1:
                         st.markdown(f"🕒 **{entry['start_time']} - {entry['end_time']}**")
-                    with col_card2:
-                        st.markdown(f"📚 **[{entry['subject_code']}]** | 📍 Room: `{entry['room_number']}`")
-                    with col_card3:
+                    with col_c2:
+                        st.markdown(f"📚 **[{entry['subject_code']}]** | Room: `{entry['room_number']}`")
+                    with col_c3:
                         if st.button("🗑️ Remove", key=f"del_tt_{entry['id']}"):
                             supabase.table("student_timetables").delete().eq("id", entry['id']).execute()
                             st.rerun()
                     st.divider()
         else:
-            st.info(f"🎉 No classes scheduled for today ({current_day_name}) in {selected_semester}!")
-
-        st.markdown("---")
-        st.subheader("🗓️ Full Weekly Timetable Overview")
-        
-        if all_timetable_entries:
-            days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            
-            for day in days_order:
-                day_slots = [t for t in all_timetable_entries if t.get("day_of_week") == day]
-                if day_slots:
-                    with st.expander(f"📌 {day} ({len(day_slots)} classes)"):
-                        for ds in day_slots:
-                            col_d1, col_d2, col_d3 = st.columns([2, 3, 1])
-                            with col_d1:
-                                st.write(f"⏰ {ds['start_time']} - {ds['end_time']}")
-                            with col_d2:
-                                st.write(f"📖 **[{ds['subject_code']}]** (Room: {ds['room_number']})")
-                            with col_d3:
-                                if st.button("🗑️ Delete", key=f"del_week_tt_{ds['id']}"):
-                                    supabase.table("student_timetables").delete().eq("id", ds['id']).execute()
-                                    st.rerun()
-        else:
-            st.info("No timetable entries logged for this semester yet.")
+            st.info(f"🎉 No classes scheduled for today ({current_day_name})!")
 
 # =========================================================
 # TAB 5: NOTES & STUDY MATERIAL HUB
@@ -1495,90 +1456,64 @@ with main_tab_timetable:
 with main_tab_notes:
     st.header(f"📖 Notes & Study Material Repository ({selected_semester})")
     
-    # Check permissions
     user_perms = get_user_material_permissions(user_email, is_admin)
     
     if not user_perms.get("can_access", False):
-        st.warning("🔒 **Access Restricted:** You do not have permission to view the Study Material Repository. Please contact an Administrator to request access.")
+        st.warning("🔒 **Access Restricted:** You do not have permission to view study materials. Contact an Admin.")
     else:
-        # Check if user can upload
         if user_perms.get("can_upload", False):
             with st.expander("➕ Upload Study Material / Reference Link", expanded=False):
                 with st.form("upload_material_form", clear_on_submit=True):
                     col_m1, col_m2 = st.columns(2)
                     with col_m1:
-                        mat_sub = st.text_input("Subject Code / Name", placeholder="e.g. TCS-401 or Mathematics")
-                        mat_title = st.text_input("Resource Title", placeholder="e.g. Chapter 4 Lecture Notes PDF")
+                        mat_sub = st.text_input("Subject Code", placeholder="e.g. TCS-401")
+                        mat_title = st.text_input("Resource Title", placeholder="e.g. Lecture Notes")
                     with col_m2:
-                        mat_type = st.selectbox("Resource Type", options=["External URL / Website Link", "PDF Document", "Word Document (.docx)", "Text File (.txt)", "Photo / Diagram"])
-                        mat_desc = st.text_input("Description (Optional)", placeholder="e.g. Covers Memory Management & Paging")
+                        mat_type = st.selectbox("Type", options=["External URL / Website Link", "PDF Document", "Word Document (.docx)", "Text File (.txt)", "Photo / Diagram"])
+                        mat_desc = st.text_input("Description (Optional)")
 
-                    st.markdown("##### Choose Source Type:")
                     tab_upload_link, tab_upload_file = st.tabs(["🔗 External URL Link", "📁 Upload File to Cloud"])
-                    
                     with tab_upload_link:
-                        mat_link_input = st.text_input("Resource Web Link (URL)", placeholder="https://example.com/notes.pdf")
-
+                        mat_link_input = st.text_input("Web Link (URL)")
                     with tab_upload_file:
-                        uploaded_file = st.file_uploader("Choose File (PDF, DOCX, TXT, PNG, JPG)", type=["pdf", "docx", "txt", "png", "jpg", "jpeg"])
+                        uploaded_file = st.file_uploader("Choose File", type=["pdf", "docx", "txt", "png", "jpg", "jpeg"])
 
                     submit_material = st.form_submit_button("🚀 Upload & Save Resource", type="primary")
 
                     if submit_material:
                         if not mat_sub.strip() or not mat_title.strip():
-                            st.error("Please enter a Subject Code and Resource Title.")
+                            st.error("Please enter Subject Code and Title.")
                         else:
                             final_url = None
                             saved_type = "URL"
-
-                            # Handle Cloud Storage upload if file attached
                             if uploaded_file is not None:
                                 try:
                                     file_bytes = uploaded_file.read()
                                     ext = uploaded_file.name.split(".")[-1]
                                     file_path = f"{selected_semester}/{user_email}_{int(datetime.now().timestamp())}.{ext}"
-
                                     supabase.storage.from_("study_materials").upload(file_path, file_bytes)
                                     final_url = supabase.storage.from_("study_materials").get_public_url(file_path)
-
-                                    if ext.lower() in ["pdf"]:
-                                        saved_type = "PDF"
-                                    elif ext.lower() in ["docx"]:
-                                        saved_type = "DOCUMENT"
-                                    elif ext.lower() in ["txt"]:
-                                        saved_type = "TEXT"
-                                    elif ext.lower() in ["png", "jpg", "jpeg"]:
-                                        saved_type = "IMAGE"
+                                    saved_type = ext.upper()
                                 except Exception as storage_err:
-                                    st.error(f"Failed to upload file to storage: {storage_err}")
-
+                                    st.error(f"Storage upload error: {storage_err}")
                             elif mat_link_input.strip():
                                 final_url = mat_link_input.strip()
                                 saved_type = "URL"
 
-                            if not final_url:
-                                st.error("Please provide either a Web Link URL or upload a file.")
-                            else:
-                                try:
-                                    supabase.table("study_materials").insert({
-                                        "uploader_email": user_email,
-                                        "semester": selected_semester,
-                                        "subject_code": mat_sub.strip().upper(),
-                                        "title": mat_title.strip(),
-                                        "description": mat_desc.strip() if mat_desc else "",
-                                        "material_type": saved_type,
-                                        "file_url": final_url
-                                    }).execute()
-                                    st.success(f"Resource '{mat_title}' uploaded successfully!")
-                                    st.rerun()
-                                except Exception as db_m_err:
-                                    st.error(f"Database error: {db_m_err}")
-        else:
-            st.info("ℹ️ You have **View-Only** access. Contact an Admin if you need upload privileges.")
+                            if final_url:
+                                supabase.table("study_materials").insert({
+                                    "uploader_email": user_email,
+                                    "semester": selected_semester,
+                                    "subject_code": mat_sub.strip().upper(),
+                                    "title": mat_title.strip(),
+                                    "description": mat_desc.strip() if mat_desc else "",
+                                    "material_type": saved_type,
+                                    "file_url": final_url
+                                }).execute()
+                                st.success("Resource uploaded successfully!")
+                                st.rerun()
 
         st.markdown("---")
-        st.subheader(f"📚 Available Resources ({selected_semester})")
-
         materials = load_materials_from_db(selected_semester)
         if materials:
             for mat in materials:
@@ -1590,29 +1525,25 @@ with main_tab_notes:
                             st.caption(mat["description"])
                         st.caption(f"Uploaded by: `{mat['uploader_email']}`")
                     with col_res2:
-                        st.markdown(f"🔗 [View / Open Link]({mat['file_url']})")
-                        
-                        # Direct binary download button inside Streamlit for uploaded files
+                        st.markdown(f"🔗 [Open Link]({mat['file_url']})")
                         if mat["file_url"].startswith("http"):
                             try:
                                 res = requests.get(mat["file_url"], timeout=5)
                                 if res.status_code == 200:
                                     file_ext = mat["file_url"].split(".")[-1].split("?")[0]
-                                    file_name = f"{mat['subject_code']}_{mat['title'].replace(' ', '_')}.{file_ext}"
                                     st.download_button(
-                                        label="💾 Download File",
+                                        label="💾 Download",
                                         data=res.content,
-                                        file_name=file_name,
+                                        file_name=f"{mat['subject_code']}_{mat['title']}.{file_ext}",
                                         key=f"dl_btn_{mat['id']}"
                                     )
                             except Exception:
                                 pass
                     with col_res3:
-                        # Allow Admin or Uploader to delete
                         if is_admin or mat["uploader_email"] == user_email:
                             if st.button("🗑️ Delete", key=f"del_mat_{mat['id']}"):
                                 supabase.table("study_materials").delete().eq("id", mat['id']).execute()
                                 st.rerun()
                     st.divider()
         else:
-            st.info(f"No study materials uploaded for {selected_semester} yet.")
+            st.info("No study materials uploaded for this semester.")
