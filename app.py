@@ -138,7 +138,7 @@ if "admin_page" not in st.session_state:
     st.session_state.admin_page = "AdminHome"
 
 # ---------------------------------------------------------
-# GLASSMORPHISM, MICRO-INTERACTIONS & HOVER STATES CSS ENGINE
+# GLASSMORPHISM, MICRO-INTERACTIONS, WHITESPACE & HIERARCHY CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -147,11 +147,39 @@ st.markdown(
         background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
         color: #c9d1d9 !important;
     }
+    
+    /* Typography & Hierarchy Improvements */
+    h1 {
+        font-weight: 800 !important;
+        letter-spacing: -0.5px !important;
+        margin-bottom: 0.5rem !important;
+        color: #ffffff !important;
+    }
+    h2 {
+        font-weight: 700 !important;
+        letter-spacing: -0.3px !important;
+        margin-top: 1.5rem !important;
+        margin-bottom: 1rem !important;
+        color: #e6edf3 !important;
+    }
+    h3 {
+        font-weight: 600 !important;
+        margin-top: 1.2rem !important;
+        margin-bottom: 0.8rem !important;
+        color: #8b949e !important;
+    }
+    hr {
+        margin: 2.5rem 0 !important;
+        border: none !important;
+        height: 1px !important;
+        background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,183,3,0.3), rgba(255,255,255,0)) !important;
+    }
+
     [data-testid="stMetric"] {
         background: rgba(22, 27, 34, 0.7) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
         border-radius: 16px !important;
-        padding: 1.4rem !important;
+        padding: 1.6rem !important;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
@@ -166,7 +194,7 @@ st.markdown(
         background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
         -webkit-background-clip: text !important;
         -webkit-text-fill-color: transparent !important;
-        font-size: 2.2rem !important;
+        font-size: 2.4rem !important;
         font-weight: 800 !important;
         filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
     }
@@ -177,6 +205,7 @@ st.markdown(
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
         backdrop-filter: blur(10px) !important;
         -webkit-backdrop-filter: blur(10px) !important;
+        margin-bottom: 1rem !important;
         transition: all 0.3s ease !important;
     }
     div[data-testid="stExpander"]:hover {
@@ -198,9 +227,11 @@ st.markdown(
     [data-testid="stSidebar"] {
         background-color: #0b0f15 !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding-top: 1rem !important;
     }
     .stButton button {
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        padding: 0.5rem 1rem !important;
     }
     .stButton button:hover {
         transform: translateY(-2px) !important;
