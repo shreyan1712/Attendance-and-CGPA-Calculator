@@ -136,11 +136,12 @@ if not st.session_state.authenticated:
             max-width: 500px;
             margin: 2rem auto;
             padding: 2.5rem;
-            background: rgba(14, 17, 23, 0.75);
-            border: 1px solid rgba(255, 183, 3, 0.3);
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(8px);
+            background: rgba(14, 17, 23, 0.75) !important;
+            border: 1px solid rgba(255, 183, 3, 0.3) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
         }
         .auth-header {
             text-align: center;
@@ -164,11 +165,6 @@ if not st.session_state.authenticated:
             color: white !important;
             border: 2px solid #ffb703 !important;
             box-shadow: 0 0 10px rgba(217, 4, 41, 0.4);
-            transition: all 0.2s ease-in-out;
-        }
-        .stForm [data-testid="stFormSubmitButton"] button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 0 15px #ffb703;
         }
         </style>
         """,
@@ -379,80 +375,60 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# HIGH-FI SAAS UI STYLING & GLASSMORPHISM THEME
+# HIGH-PRECISION GLASSMORPHISM & DEPTH CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
     <style>
+    /* Main Background & Base Typography */
     .stApp {
-        background-color: #0d1117;
-        color: #c9d1d9;
-    }
-    h1 {
-        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.03em !important;
-        color: #ffffff !important;
-    }
-    h2, h3 {
-        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
-        color: #f0f6fc !important;
-        font-weight: 700 !important;
-        letter-spacing: -0.01em !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2.2rem !important;
-        font-weight: 800 !important;
-        color: #58a6ff !important;
-    }
-    [data-testid="stMetric"] {
-        background: rgba(22, 27, 34, 0.65);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px;
-        padding: 1.4rem;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-        backdrop-filter: blur(12px);
-        transition: all 0.2s ease-in-out;
-    }
-    [data-testid="stMetric"]:hover {
-        border-color: rgba(88, 166, 255, 0.3);
-        transform: translateY(-2px);
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-    }
-    .stExpander {
-        background: rgba(22, 27, 34, 0.6) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        backdrop-filter: blur(10px);
-        transition: all 0.2s ease-in-out;
-    }
-    .stExpander:hover {
-        border-color: rgba(255, 255, 255, 0.15) !important;
-    }
-    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
-        background-color: rgba(13, 17, 23, 0.8) !important;
-        border-color: rgba(255, 255, 255, 0.1) !important;
-        border-radius: 10px !important;
+        background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
         color: #c9d1d9 !important;
-        transition: all 0.2s ease;
     }
-    div[data-baseweb="input"] > div:hover, div[data-baseweb="select"] > div:hover {
-        border-color: rgba(88, 166, 255, 0.4) !important;
+
+    /* Glassmorphism Cards: Metrics */
+    [data-testid="stMetric"] {
+        background: rgba(22, 27, 34, 0.7) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 16px !important;
+        padding: 1.4rem !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
     }
-    [data-testid="stSidebar"] {
-        background-color: #0b0f15;
-        padding-top: 1rem;
-        border-right: 1px solid rgba(255, 255, 255, 0.06);
+    
+    /* Glassmorphism Containers & Expanders */
+    div[data-testid="stExpander"] {
+        background: rgba(22, 27, 34, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
     }
-    .stButton button {
+
+    /* Form Fields Glass Styling */
+    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
+        background-color: rgba(13, 17, 23, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
         border-radius: 10px !important;
-        font-weight: 600 !important;
-        transition: all 0.2s ease-in-out !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+        color: #c9d1d9 !important;
     }
-    .stButton button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 16px rgba(88, 166, 255, 0.2) !important;
+
+    /* Sidebar Glass Divider */
+    [data-testid="stSidebar"] {
+        background-color: #0b0f15 !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+
+    /* Primary Glass Buttons */
+    .stButton button[kind="primary"] {
+        background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
+        border: 1px solid rgba(255, 183, 3, 0.4) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 15px rgba(217, 4, 41, 0.3) !important;
+        backdrop-filter: blur(6px) !important;
     }
     </style>
     """,
