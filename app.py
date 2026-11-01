@@ -138,7 +138,7 @@ if "admin_page" not in st.session_state:
     st.session_state.admin_page = "AdminHome"
 
 # ---------------------------------------------------------
-# GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
+# GLASSMORPHISM, MICRO-INTERACTIONS & HOVER STATES CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -155,6 +155,12 @@ st.markdown(
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-4px) !important;
+        border-color: rgba(255, 183, 3, 0.4) !important;
+        box-shadow: 0 14px 40px 0 rgba(0, 0, 0, 0.6), 0 0 20px rgba(217, 4, 41, 0.25) !important;
     }
     [data-testid="stMetricValue"] {
         background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
@@ -171,6 +177,11 @@ st.markdown(
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
         backdrop-filter: blur(10px) !important;
         -webkit-backdrop-filter: blur(10px) !important;
+        transition: all 0.3s ease !important;
+    }
+    div[data-testid="stExpander"]:hover {
+        border-color: rgba(255, 255, 255, 0.22) !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
     }
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
         background-color: rgba(13, 17, 23, 0.85) !important;
@@ -178,10 +189,23 @@ st.markdown(
         border-radius: 10px !important;
         box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
         color: #c9d1d9 !important;
+        transition: all 0.3s ease !important;
+    }
+    div[data-baseweb="input"] > div:focus-within, div[data-baseweb="select"] > div:focus-within {
+        border-color: #ffb703 !important;
+        box-shadow: 0 0 12px rgba(255, 183, 3, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
     }
     [data-testid="stSidebar"] {
         background-color: #0b0f15 !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+    .stButton button {
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .stButton button:hover {
+        transform: translateY(-2px) !important;
+        filter: brightness(1.12) !important;
+        box-shadow: 0 6px 20px rgba(217, 4, 41, 0.4) !important;
     }
     .stButton button[kind="primary"] {
         background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
