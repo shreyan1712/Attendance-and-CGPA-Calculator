@@ -201,12 +201,23 @@ if not st.session_state.authenticated:
                         st.error("Please enter both username and password.")
                     else:
                         try:
+                            clean_username = login_user.strip()
+                            # Query matching exact username or case-insensitive fallback if needed
                             response = (
                                 supabase.table("users")
                                 .select("*")
-                                .eq("username", login_user.strip())
+                                .eq("username", clean_username)
                                 .execute()
                             )
+                            if not response.data:
+                                # Try matching by email if username input looks like an email
+                                response = (
+                                    supabase.table("users")
+                                    .select("*")
+                                    .eq("email", clean_username)
+                                    .execute()
+                                )
+
                             if response.data:
                                 db_user = response.data[0]
                                 hashed_input = hash_password(login_pass)
@@ -217,9 +228,9 @@ if not st.session_state.authenticated:
                                     st.success("Login successful! Loading dashboard...")
                                     st.rerun()
                                 else:
-                                    st.error("Incorrect password.")
+                                    st.error("Incorrect password. Please check your credentials.")
                             else:
-                                st.error("Username does not exist.")
+                                st.error("Username or email does not exist.")
                         except Exception as err:
                             st.error(f"Database error during login: {err}")
 
@@ -1421,7 +1432,7 @@ with main_tab_timetable:
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
