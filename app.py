@@ -128,7 +128,6 @@ if "reset_step" not in st.session_state:
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Home"
 
-# Persistent admin unlocked state across pages during session
 if "admin_unlocked" not in st.session_state:
     st.session_state.admin_unlocked = False
 if "show_admin_login" not in st.session_state:
@@ -140,13 +139,10 @@ if "show_admin_login" not in st.session_state:
 st.markdown(
     """
     <style>
-    /* Main Background & Base Typography */
     .stApp {
         background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
         color: #c9d1d9 !important;
     }
-
-    /* Glassmorphism Cards: Metrics */
     [data-testid="stMetric"] {
         background: rgba(22, 27, 34, 0.7) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -156,8 +152,6 @@ st.markdown(
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
     }
-
-    /* Vibrant Colored Metric Numbers */
     [data-testid="stMetricValue"] {
         background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
         -webkit-background-clip: text !important;
@@ -166,8 +160,6 @@ st.markdown(
         font-weight: 800 !important;
         filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
     }
-    
-    /* Glassmorphism Containers & Expanders */
     div[data-testid="stExpander"] {
         background: rgba(22, 27, 34, 0.6) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -176,8 +168,6 @@ st.markdown(
         backdrop-filter: blur(10px) !important;
         -webkit-backdrop-filter: blur(10px) !important;
     }
-
-    /* Form Fields Glass Styling */
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
         background-color: rgba(13, 17, 23, 0.85) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -185,14 +175,10 @@ st.markdown(
         box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
         color: #c9d1d9 !important;
     }
-
-    /* Sidebar Glass Divider */
     [data-testid="stSidebar"] {
         background-color: #0b0f15 !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
     }
-
-    /* Primary Glass Buttons */
     .stButton button[kind="primary"] {
         background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
         border: 1px solid rgba(255, 183, 3, 0.4) !important;
@@ -206,7 +192,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# GLOBAL MAINTENANCE MODE CHECK (SUPABASE SETTINGS)
+# GLOBAL MAINTENANCE MODE CHECK
 # ---------------------------------------------------------
 def check_maintenance_mode():
     try:
@@ -231,9 +217,7 @@ is_maintenance = check_maintenance_mode()
 # If not authenticated, show login page
 if not st.session_state.authenticated:
     if is_maintenance:
-        # Check if the person trying to log in is the admin
         admin_email_secret = st.secrets.get("admin_email", "")
-        # Show maintenance notice with golden-orangish aesthetic
         st.markdown(
             """
             <style>
@@ -267,7 +251,6 @@ if not st.session_state.authenticated:
             unsafe_allow_html=True,
         )
         
-        # Allow admin login bypass during maintenance
         with st.expander("🔐 Admin Emergency Login Bypass"):
             with st.form("maint_admin_login"):
                 m_user = st.text_input("Admin Username / Email")
@@ -307,7 +290,6 @@ if not st.session_state.authenticated:
             border-radius: 16px !important;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
             backdrop-filter: blur(16px) !important;
-            -webkit-backdrop-filter: blur(16px) !important;
         }
         .auth-header {
             text-align: center;
@@ -385,7 +367,6 @@ if not st.session_state.authenticated:
                                 db_user = response.data[0]
                                 hashed_input = hash_password(login_pass)
                                 if db_user["password_hash"] == hashed_input:
-                                    # If maintenance mode is active, block non-admins
                                     admin_email_secret = st.secrets.get("admin_email", "")
                                     if is_maintenance and db_user["email"] != admin_email_secret:
                                         st.error("🚧 SITE IS UNDER MAINTENANCE. Regular logins are currently disabled.")
@@ -542,7 +523,6 @@ user_name = st.session_state.user_name
 admin_email_secret = st.secrets.get("admin_email", "")
 is_admin = admin_email_secret and user_email == admin_email_secret
 
-# If maintenance mode is active, log out / block regular users immediately
 if is_maintenance and not is_admin:
     st.session_state.authenticated = False
     st.session_state.user_email = None
@@ -551,7 +531,6 @@ if is_maintenance and not is_admin:
     st.session_state.show_admin_login = False
     st.rerun()
 
-# Update presence heartbeat (using UTC time)
 try:
     supabase.table("users").update({"last_seen": datetime.now(timezone.utc).isoformat()}).eq("email", user_email).execute()
 except Exception:
@@ -758,21 +737,35 @@ except Exception:
 if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🕵️ Admin Controls")
+    
+    # Toggle between Student View and Admin Panel without losing 2FA unlock
     if not st.session_state.admin_unlocked:
         if st.sidebar.button("🔐 Enter Admin Mode", type="primary", use_container_width=True):
             st.session_state.show_admin_login = True
             st.rerun()
         admin_mode = False
     else:
-        if st.sidebar.button("🔒 Lock Admin Mode", use_container_width=True):
-            st.session_state.admin_unlocked = False
-            st.session_state.show_admin_login = False
-            st.rerun()
-        admin_mode = True
+        # Give admin a clean way to view normal pages OR lock admin mode completely
+        col_sb1, col_sb2 = st.sidebar.columns(2)
+        with col_sb1:
+            if st.button("👁️ View Hub", use_container_width=True):
+                st.session_state.admin_active_tab = False
+                st.rerun()
+        with col_sb2:
+            if st.button("🔒 Lock Admin", use_container_width=True):
+                st.session_state.admin_unlocked = False
+                st.session_state.show_admin_login = False
+                st.rerun()
+        
+        # Check if admin is currently viewing the admin dashboard or student modules
+        if "admin_active_tab" not in st.session_state:
+            st.session_state.admin_active_tab = True
+            
+        admin_mode = st.session_state.admin_active_tab
 else:
     admin_mode = False
 
-# Screen Takeover for Google Authenticator prompt (only prompts once per login session)
+# Screen Takeover for Google Authenticator prompt (prompts only once per login session)
 if is_admin and st.session_state.show_admin_login and not st.session_state.admin_unlocked:
     st.title("🔐 Secure Admin Authentication")
     st.markdown("Please enter your **Google Authenticator 6-digit code** to access the System Administrator Dashboard.")
@@ -798,15 +791,26 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
                 if totp.verify(totp_input.strip()):
                     st.session_state.admin_unlocked = True
                     st.session_state.show_admin_login = False
+                    st.session_state.admin_active_tab = True
                     st.success("Authentication successful! Unlocking admin dashboard...")
                     st.rerun()
                 else:
                     st.error("❌ Invalid Authenticator code. Please try again.")
     st.stop()
 
+# ---------------------------------------------------------
+# ADMIN DASHBOARD VIEW
+# ---------------------------------------------------------
 if is_admin and admin_mode:
-    st.header("🕵️ System Administrator Dashboard")
-    st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, and inspect reports.")
+    col_head1, col_head2 = st.columns([6, 2])
+    with col_head1:
+        st.header("🕵️ System Administrator Dashboard")
+        st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, and inspect reports.")
+    with col_head2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("👈 Back to Student Hub", type="primary", use_container_width=True):
+            st.session_state.admin_active_tab = False
+            st.rerun()
 
     # Maintenance Mode Switcher in Admin Panel
     st.markdown("---")
@@ -1082,7 +1086,7 @@ if current_page == "Home":
     st.subheader("📅 Today's Schedule Overview")
     current_day_name = get_ist_time().strftime("%A")
     all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-    today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+    today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
 
     if today_entries:
         for entry in today_entries:
@@ -1508,7 +1512,7 @@ elif current_page == "Schedule":
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
