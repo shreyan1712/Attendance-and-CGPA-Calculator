@@ -959,7 +959,7 @@ if current_page == "Home":
     st.subheader("📅 Today's Schedule Overview")
     current_day_name = get_ist_time().strftime("%A")
     all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-    today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
+    today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
 
     if today_entries:
         for entry in today_entries:
