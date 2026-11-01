@@ -336,6 +336,7 @@ def set_maintenance_mode(status: bool):
             "key": "maintenance_mode",
             "value": status
         }, on_conflict="key").execute()
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Failed to update maintenance mode: {e}")
 
@@ -664,8 +665,9 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# CLOUD DATABASE HELPER FUNCTIONS
+# CLOUD DATABASE HELPER FUNCTIONS WITH @st.cache_data
 # ---------------------------------------------------------
+@st.cache_data
 def load_data_from_db(email):
     try:
         response = (
@@ -691,8 +693,10 @@ def save_data_to_db(email, semester, subjects_list):
         },
         on_conflict="user_email,semester",
     ).execute()
+    st.cache_data.clear()
 
 
+@st.cache_data
 def load_locks_from_db(email):
     try:
         response = (
@@ -718,8 +722,10 @@ def save_lock_to_db(email, semester, is_locked):
         },
         on_conflict="user_email,semester",
     ).execute()
+    st.cache_data.clear()
 
 
+@st.cache_data
 def load_assignments_from_db(email, semester):
     try:
         resp = supabase.table("student_assignments").select("*").eq("user_email", email).eq("semester", semester).execute()
@@ -738,10 +744,12 @@ def save_assignment_to_db(email, semester, subject_code, title, due_date_str, fi
             "due_date": due_date_str,
             "file_url": file_url
         }).execute()
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Error saving assignment: {e}")
 
 
+@st.cache_data
 def load_exams_from_db(email, semester):
     try:
         resp = supabase.table("student_exams").select("*").eq("user_email", email).eq("semester", semester).execute()
@@ -760,10 +768,12 @@ def save_exam_to_db(email, semester, subject_code, exam_type, exam_date_str, syl
             "exam_date": exam_date_str,
             "syllabus": syllabus
         }).execute()
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Error saving exam: {e}")
 
 
+@st.cache_data
 def load_timetable_from_db(email, semester):
     try:
         resp = supabase.table("student_timetables").select("*").eq("user_email", email).eq("semester", semester).execute()
@@ -783,10 +793,12 @@ def save_timetable_to_db(email, semester, day_of_week, subject_code, start_time_
             "end_time": end_time_str,
             "room_number": room_number
         }).execute()
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Error saving timetable entry: {e}")
 
 
+@st.cache_data
 def get_user_material_permissions(email, is_admin_user=False):
     if is_admin_user:
         return {"can_access": True, "can_upload": True}
@@ -799,6 +811,7 @@ def get_user_material_permissions(email, is_admin_user=False):
         return {"can_access": False, "can_upload": False}
 
 
+@st.cache_data
 def load_materials_from_db(semester, email=None):
     try:
         resp = supabase.table("study_materials").select("*").eq("semester", semester).execute()
@@ -835,6 +848,7 @@ default_target = st.sidebar.slider(
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Logout", key="logout_btn", use_container_width=True):
+    st.cache_data.clear()  # Wipes cache clean on logout
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
@@ -854,6 +868,7 @@ try:
                 if st.button("✅ Mark as Read & Clear", key=f"read_msg_{msg['id']}"):
                     read_list.append(user_email)
                     supabase.table("admin_messages").update({"read_by": read_list}).eq("id", msg['id']).execute()
+                    st.cache_data.clear()
                     st.rerun()
 except Exception:
     pass
@@ -871,7 +886,6 @@ if is_admin:
             st.rerun()
         admin_mode = False
     else:
-        # Dynamically switch between viewing student hub and locking admin mode (top header button removed)
         col_sb1, col_sb2 = st.sidebar.columns(2)
         with col_sb1:
             if st.session_state.admin_active_tab:
@@ -894,7 +908,6 @@ if is_admin:
 else:
     admin_mode = False
 
-# Screen Takeover for Google Authenticator prompt (prompts only once per login session)
 if is_admin and st.session_state.show_admin_login and not st.session_state.admin_unlocked:
     st.title("🔐 Secure Admin Authentication")
     st.markdown("Please enter your **Google Authenticator 6-digit code** to access the System Administrator Dashboard.")
@@ -1100,6 +1113,7 @@ if is_admin and admin_mode:
                         "can_access": grant_access,
                         "can_upload": grant_upload
                     }, on_conflict="user_email").execute()
+                    st.cache_data.clear()
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
         except Exception as e:
@@ -1130,11 +1144,13 @@ if is_admin and admin_mode:
                             with col_ap_btn1:
                                 if st.button("✅ Approve", key=f"appr_{p_mat['id']}"):
                                     supabase.table("study_materials").update({"is_approved": True}).eq("id", p_mat['id']).execute()
+                                    st.cache_data.clear()
                                     st.success("Material approved!")
                                     st.rerun()
                             with col_ap_btn2:
                                 if st.button("❌ Reject", key=f"rej_{p_mat['id']}"):
                                     supabase.table("study_materials").delete().eq("id", p_mat['id']).execute()
+                                    st.cache_data.clear()
                                     st.success("Material rejected & deleted.")
                                     st.rerun()
                         st.divider()
@@ -1161,6 +1177,7 @@ if is_admin and admin_mode:
                         "message_text": msg_text.strip(),
                         "read_by": []
                     }).execute()
+                    st.cache_data.clear()
                     st.success("Message dispatched successfully!")
                     st.rerun()
                 else:
@@ -1182,7 +1199,6 @@ if is_admin and admin_mode:
                 target_sem = st.selectbox("Select Semester", options=[f"Semester {i}" for i in range(1, 9)])
 
                 if st.button("🕵️ SILENTLY SEND STUDENT REPORT TO MY ADMIN EMAIL", type="primary"):
-                    # Load student data
                     student_sem_data = load_data_from_db(target_student_email)
                     subj_list = student_sem_data.get(target_sem, [])
                     
@@ -1655,6 +1671,7 @@ elif current_page == "Assignments":
                     with col_b3:
                         if st.button("🗑️ Remove", key=f"del_asg_{asg['id']}"):
                             supabase.table("student_assignments").delete().eq("id", asg['id']).execute()
+                            st.cache_data.clear()
                             st.rerun()
                     st.divider()
         else:
@@ -1716,6 +1733,7 @@ elif current_page == "Exams":
                     st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
                     if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
                         supabase.table("student_exams").delete().eq("id", ex['id']).execute()
+                        st.cache_data.clear()
                         st.rerun()
         else:
             st.info("No exam schedules logged.")
@@ -1769,6 +1787,7 @@ elif current_page == "Schedule":
                     with col_c3:
                         if st.button("🗑️ Remove", key=f"del_tt_{entry['id']}"):
                             supabase.table("student_timetables").delete().eq("id", entry['id']).execute()
+                            st.cache_data.clear()
                             st.rerun()
                     st.divider()
         else:
@@ -1836,6 +1855,7 @@ elif current_page == "Notes":
                                     "file_url": final_url,
                                     "is_approved": is_admin
                                 }).execute()
+                                st.cache_data.clear()
                                 st.success("Resource uploaded successfully! Awaiting admin approval." if not is_admin else "Resource uploaded and published successfully!")
                                 st.rerun()
 
@@ -1872,6 +1892,7 @@ elif current_page == "Notes":
                         if is_admin or mat["uploader_email"] == user_email:
                             if st.button("🗑️ Delete", key=f"del_mat_{mat['id']}"):
                                 supabase.table("study_materials").delete().eq("id", mat['id']).execute()
+                                st.cache_data.clear()
                                 st.rerun()
                     st.divider()
         else:
