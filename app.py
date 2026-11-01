@@ -164,9 +164,10 @@ if not st.session_state.authenticated:
             color: white !important;
             border: 2px solid #ffb703 !important;
             box-shadow: 0 0 10px rgba(217, 4, 41, 0.4);
+            transition: all 0.2s ease-in-out;
         }
         .stForm [data-testid="stFormSubmitButton"] button:hover {
-            transform: scale(1.01);
+            transform: translateY(-2px);
             box-shadow: 0 0 15px #ffb703;
         }
         </style>
@@ -378,7 +379,7 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# COMPREHENSIVE INTERNAL UI STYLING & NEON DASHBOARD THEME
+# HIGH-FI SAAS UI STYLING & GLASSMORPHISM THEME
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -390,43 +391,68 @@ st.markdown(
     h1 {
         font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
         font-weight: 800 !important;
-        letter-spacing: -0.02em !important;
+        letter-spacing: -0.03em !important;
         color: #ffffff !important;
     }
     h2, h3 {
         font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
         color: #f0f6fc !important;
         font-weight: 700 !important;
+        letter-spacing: -0.01em !important;
     }
     [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
+        font-size: 2.2rem !important;
         font-weight: 800 !important;
         color: #58a6ff !important;
     }
     [data-testid="stMetric"] {
-        background: rgba(22, 27, 34, 0.7);
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 1.2rem;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        backdrop-filter: blur(6px);
+        background: rgba(22, 27, 34, 0.65);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        padding: 1.4rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(12px);
+        transition: all 0.2s ease-in-out;
+    }
+    [data-testid="stMetric"]:hover {
+        border-color: rgba(88, 166, 255, 0.3);
+        transform: translateY(-2px);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
     }
     .stExpander {
-        background: #161b22 !important;
-        border: 1px solid #30363d !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        background: rgba(22, 27, 34, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        transition: all 0.2s ease-in-out;
+    }
+    .stExpander:hover {
+        border-color: rgba(255, 255, 255, 0.15) !important;
     }
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
-        background-color: #0d1117 !important;
-        border-color: #30363d !important;
-        border-radius: 8px !important;
+        background-color: rgba(13, 17, 23, 0.8) !important;
+        border-color: rgba(255, 255, 255, 0.1) !important;
+        border-radius: 10px !important;
         color: #c9d1d9 !important;
+        transition: all 0.2s ease;
+    }
+    div[data-baseweb="input"] > div:hover, div[data-baseweb="select"] > div:hover {
+        border-color: rgba(88, 166, 255, 0.4) !important;
     }
     [data-testid="stSidebar"] {
-        background-color: #0e1117;
+        background-color: #0b0f15;
         padding-top: 1rem;
-        border-right: 1px solid #30363d;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .stButton button {
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    .stButton button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 16px rgba(88, 166, 255, 0.2) !important;
     }
     </style>
     """,
@@ -796,7 +822,7 @@ if is_admin and admin_mode:
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
 
-        # Study Material Moderation & Approval Queue (NEW FEATURE)
+        # Study Material Moderation & Approval Queue
         st.markdown("---")
         st.subheader("📋 Study Material Moderation & Approval Queue")
         try:
@@ -1373,7 +1399,7 @@ elif current_page == "Schedule":
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
