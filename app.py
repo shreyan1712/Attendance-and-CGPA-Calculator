@@ -126,7 +126,6 @@ if "reset_step" not in st.session_state:
     st.session_state.reset_email = None
 
 if not st.session_state.authenticated:
-    # Custom CSS for gorgeous centered auth card and polished form controls
     st.markdown(
         """
         <style>
@@ -380,60 +379,26 @@ except Exception:
 st.markdown(
     """
     <style>
-    /* Global Main Background & Typography Enhancements */
     .stApp {
         background-color: #0d1117;
         color: #c9d1d9;
     }
-    
-    /* Elegant Modern Header Styling */
     h1 {
         font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
         font-weight: 800 !important;
         letter-spacing: -0.02em !important;
         color: #ffffff !important;
     }
-
     h2, h3 {
         font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
         color: #f0f6fc !important;
         font-weight: 700 !important;
     }
-
-    /* Polished Tab Bar Navigation */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #161b22;
-        padding: 8px 12px;
-        border-radius: 12px;
-        border: 1px solid #30363d;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        height: 44px;
-        white-space: pre;
-        border-radius: 8px;
-        color: #8b949e;
-        font-weight: 600;
-        font-size: 14px;
-        transition: all 0.2s ease-in-out;
-        border: none !important;
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: #21262d !important;
-        color: #58a6ff !important;
-        border-bottom: 2px solid #58a6ff !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    /* Metric Card Enhancements */
     [data-testid="stMetricValue"] {
         font-size: 2rem !important;
         font-weight: 800 !important;
         color: #58a6ff !important;
     }
-    
     [data-testid="stMetric"] {
         background: rgba(22, 27, 34, 0.7);
         border: 1px solid #30363d;
@@ -442,50 +407,23 @@ st.markdown(
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         backdrop-filter: blur(6px);
     }
-
-    /* Container & Expandable Glass Card Styling */
     .stExpander {
         background: #161b22 !important;
         border: 1px solid #30363d !important;
         border-radius: 12px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
-
-    /* Input & Form Field Refinements */
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
         background-color: #0d1117 !important;
         border-color: #30363d !important;
         border-radius: 8px !important;
         color: #c9d1d9 !important;
     }
-
-    div[data-baseweb="input"] > div:focus-within {
-        border-color: #58a6ff !important;
-        box-shadow: 0 0 0 1px #58a6ff !important;
-    }
-
-    /* Custom CSS for Neon Glowing Buttons & Sidebar UI Polish */
     [data-testid="stSidebar"] {
         background-color: #0e1117;
         padding-top: 1rem;
         border-right: 1px solid #30363d;
     }
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(6) button {
-        width: 100%; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 12px 15px;
-        color: white !important; background: linear-gradient(135deg, #a00037, #d90429) !important;
-        border: 3px solid #ffb703 !important; box-shadow: 0 0 15px #ffb703, inset 0 0 10px rgba(255, 255, 255, 0.2) !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(7) button {
-        width: 100%; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 12px 15px;
-        color: white !important; background: linear-gradient(135deg, #1b4332, #2d6a4f) !important;
-        border: 3px solid #ffb703 !important; box-shadow: 0 0 15px #ffb703, inset 0 0 10px rgba(255, 255, 255, 0.2) !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(8) button {
-        width: 100%; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 12px 15px;
-        color: white !important; background: linear-gradient(135deg, #03045e, #0077b6) !important;
-        border: 3px solid #ffb703 !important; box-shadow: 0 0 15px #ffb703, inset 0 0 10px rgba(255, 255, 255, 0.2) !important;
-    }
-    [data-testid="stSidebar"] div.stButton button:hover { transform: scale(1.02); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -637,19 +575,46 @@ def load_materials_from_db(semester):
 
 
 # ---------------------------------------------------------
-# MAIN APPLICATION INTERFACE
+# UNIFIED SIDEBAR NAVIGATION & SETTINGS
 # ---------------------------------------------------------
-st.title("📚 Student Academic & Attendance Hub")
+st.sidebar.markdown(f"### 👋 Welcome, **{user_name}**")
+st.sidebar.markdown("---")
 
-if st.sidebar.button("🚪 Logout", key="logout_btn"):
+# Main Page Selector (Unified Navigation)
+app_page = st.sidebar.radio(
+    "🧭 Navigation Hub",
+    options=[
+        "🏠 Home / Dashboard Overview",
+        "📚 Attendance & SGPA Manager",
+        "📝 Assignments & Tasks",
+        "📅 Exams & Timetable",
+        "⏰ Daily Schedule",
+        "📖 Notes & Study Material"
+    ]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ Global Settings")
+selected_semester = st.sidebar.selectbox(
+    "Active Semester", [f"Semester {i}" for i in range(1, 9)]
+)
+
+default_target = st.sidebar.slider(
+    "Target Attendance (%)",
+    min_value=50.0,
+    max_value=95.0,
+    value=75.0,
+    step=1.0,
+)
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Logout", key="logout_btn", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.user_email = None
     st.session_state.user_name = None
     st.session_state.admin_unlocked = False
     st.session_state.show_admin_login = False
     st.rerun()
-
-st.sidebar.markdown(f"Welcome, **{user_name}**!")
 
 # Check for Admin Messages directed to this user
 try:
@@ -682,12 +647,12 @@ if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🕵️ Admin Controls")
     if not st.session_state.admin_unlocked:
-        if st.sidebar.button("🔐 Enter Admin Mode", type="primary"):
+        if st.sidebar.button("🔐 Enter Admin Mode", type="primary", use_container_width=True):
             st.session_state.show_admin_login = True
             st.rerun()
         admin_mode = False
     else:
-        if st.sidebar.button("🔒 Lock Admin Mode"):
+        if st.sidebar.button("🔒 Lock Admin Mode", use_container_width=True):
             st.session_state.admin_unlocked = False
             st.session_state.show_admin_login = False
             st.rerun()
@@ -770,7 +735,6 @@ if is_admin and admin_mode:
                 }
                 
                 json_string = json.dumps(backup_data, indent=4, default=str)
-
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     zip_file.writestr("student_hub_full_backup.json", json_string)
@@ -800,12 +764,10 @@ if is_admin and admin_mode:
                     zip_file.writestr("links_inventory.txt", "".join(links_inventory_lines))
 
                 zip_buffer.seek(0)
-                zip_filename = f"student_hub_complete_archive_{date.today()}.zip"
-
                 st.download_button(
                     label="💾 Click Here to Save Complete Archive (.ZIP)",
                     data=zip_buffer,
-                    file_name=zip_filename,
+                    file_name=f"student_hub_complete_archive_{date.today()}.zip",
                     mime="application/zip",
                     type="primary"
                 )
@@ -816,8 +778,6 @@ if is_admin and admin_mode:
         # Study Material Permissions Manager
         st.markdown("---")
         st.subheader("🔑 Notes & Study Material Access Control Manager")
-        st.markdown("Grant or revoke access and upload privileges for registered users.")
-
         if users_list:
             all_user_emails = [u["email"] for u in users_list if u["email"] != user_email]
             if all_user_emails:
@@ -839,89 +799,6 @@ if is_admin and admin_mode:
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
 
-        # Stealth Admin Summary Dispatcher
-        st.markdown("---")
-        st.subheader("🕵️‍♂️ Stealth User Summary Dispatcher")
-        st.markdown("Quietly compile and dispatch any student's academic performance report directly to your admin email address without notifying the user.")
-
-        if users_list:
-            all_user_emails = [u["email"] for u in users_list]
-            with st.form("stealth_dispatch_form"):
-                col_sd1, col_sd2 = st.columns(2)
-                with col_sd1:
-                    stealth_target_email = st.selectbox("Select Target User", options=all_user_emails)
-                with col_sd2:
-                    stealth_target_sem = st.selectbox("Select Semester", options=[f"Semester {i}" for i in range(1, 9)])
-                
-                submit_stealth = st.form_submit_button("🚀 Dispatch Stealth Report to My Email", type="primary")
-
-                if submit_stealth:
-                    try:
-                        t_user_resp = supabase.table("users").select("name").eq("email", stealth_target_email).execute()
-                        t_name = t_user_resp.data[0]["name"] if t_user_resp.data else "Unknown Student"
-
-                        t_att_resp = supabase.table("student_attendance").select("*").eq("user_email", stealth_target_email).eq("semester", stealth_target_sem).execute()
-                        subjects = t_att_resp.data[0]["subjects_json"] if t_att_resp.data and t_att_resp.data[0].get("subjects_json") else []
-
-                        if not subjects:
-                            st.warning(f"No subject data found for {stealth_target_email} in {stealth_target_sem}.")
-                        else:
-                            weighted_gp = 0.0
-                            total_cred = 0
-                            rows_html = ""
-
-                            for subj in subjects:
-                                att = subj["attended"]
-                                cond = subj["conducted"]
-                                gp = subj.get("grade_point", 0.0)
-                                cred = subj["credits"]
-                                pct = (att / cond * 100) if cond > 0 else 0.0
-                                
-                                weighted_gp += cred * gp
-                                total_cred += cred
-
-                                rows_html += f"""
-                                <tr>
-                                    <td style="padding: 8px; border: 1px solid #ddd;">{subj['code']}</td>
-                                    <td style="padding: 8px; border: 1px solid #ddd;">{subj['name']}</td>
-                                    <td style="padding: 8px; border: 1px solid #ddd;">{round(pct, 2)}% ({att}/{cond})</td>
-                                    <td style="padding: 8px; border: 1px solid #ddd;">{gp}</td>
-                                </tr>
-                                """
-
-                            target_sgpa = (weighted_gp / total_cred) if total_cred > 0 else 0.0
-
-                            stealth_html_body = f"""
-                            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 2px dashed #d90429; border-radius: 10px;">
-                                <h3 style="color: #d90429; text-align: center;">🕵️‍♂️ STEALTH ADMIN REPORT DISPATCH</h3>
-                                <p><b>Student Name:</b> {t_name} ({stealth_target_email})</p>
-                                <p><b>Semester:</b> {stealth_target_sem}</p>
-                                <p><b>Calculated SGPA:</b> {target_sgpa:.2f} / 10.0</p>
-                                <h4 style="margin-top: 15px;">Subject Breakdown:</h4>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
-                                    <thead>
-                                        <tr style="background-color: #f8f9fa;">
-                                            <th style="padding: 6px; border: 1px solid #ddd;">Code</th>
-                                            <th style="padding: 6px; border: 1px solid #ddd;">Subject</th>
-                                            <th style="padding: 6px; border: 1px solid #ddd;">Attendance</th>
-                                            <th style="padding: 6px; border: 1px solid #ddd;">Grade</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {rows_html}
-                                    </tbody>
-                                </table>
-                            </div>
-                            """
-
-                            sent_ok = send_report_email(user_email, f"🕵️‍♂️ Stealth Report: {t_name} ({stealth_target_sem})", stealth_html_body)
-                            if sent_ok:
-                                st.success(f"✅ Stealth report for **{t_name}** successfully dispatched!")
-                            else:
-                                st.error("Failed to send stealth report email.")
-                    except Exception as stealth_err:
-                        st.error(f"Error compiling stealth report: {stealth_err}")
-
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
         all_emails = [u["email"] for u in users_list]
@@ -941,121 +818,95 @@ if is_admin and admin_mode:
             else:
                 st.error("Message text cannot be empty.")
 
-        st.markdown("---")
-        st.subheader("📡 Live Presence Monitor")
-        if users_list:
-            now_utc = datetime.now(timezone.utc)
-            for u in users_list:
-                u_email = u["email"]
-                u_name = u["name"]
-                u_last_seen = u.get("last_seen")
-
-                status_label = "🔴 Offline"
-                if u_last_seen:
-                    try:
-                        last_seen_dt = parse_db_time(u_last_seen)
-                        diff_sec = (now_utc - last_seen_dt).total_seconds()
-                        if 0 <= diff_sec < 20:
-                            status_label = "🟢 Online Now"
-                        elif diff_sec >= 20:
-                            mins = max(1, int(diff_sec / 60))
-                            status_label = f"🕒 Last seen {mins}m ago"
-                    except Exception:
-                        pass
-
-                col_u1, col_u2 = st.columns([3, 2])
-                with col_u1:
-                    st.markdown(f"**{u_name}** (`{u_email}`)")
-                with col_u2:
-                    st.write(status_label)
-
-        st.markdown("---")
-        st.subheader("🔓 Admin Semester Unlocker")
-        if all_emails:
-            col_un1, col_un2, col_un3 = st.columns([2, 2, 1])
-            with col_un1:
-                target_unlock_user = st.selectbox("Select User", options=all_emails, key="unlock_user_sel")
-            with col_un2:
-                target_unlock_sem = st.selectbox("Select Semester to Unlock", options=[f"Semester {i}" for i in range(1, 9)], key="unlock_sem_sel")
-            with col_un3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("🔓 UNLOCK DATA", type="primary", use_container_width=True):
-                    supabase.table("semester_locks").upsert({
-                        "user_email": target_unlock_user,
-                        "semester": target_unlock_sem,
-                        "is_locked": False
-                    }, on_conflict="user_email,semester").execute()
-                    st.success(f"Successfully unlocked {target_unlock_sem} for {target_unlock_user}!")
-
     except Exception as err:
         st.error(f"Error loading admin dashboard: {err}")
 
     st.stop()
 
 # ---------------------------------------------------------
-# REGULAR STUDENT NAVIGATION & VIEWS
+# REGULAR STUDENT DATA LOADERS
 # ---------------------------------------------------------
 st.session_state.sem_locks = load_locks_from_db(user_email)
 st.session_state.all_semesters = load_data_from_db(user_email)
 
-st.sidebar.header("Navigation & Settings")
-selected_semester = st.sidebar.selectbox(
-    "Select Semester", [f"Semester {i}" for i in range(1, 9)]
-)
-
-default_target = st.sidebar.slider(
-    "Target Attendance Percentage (%)",
-    min_value=50.0,
-    max_value=95.0,
-    value=75.0,
-    step=1.0,
-)
-
-if selected_semester not in st.session_state.all_semesters:
-    st.session_state.all_semesters[selected_semester] = []
-
 is_locked = st.session_state.sem_locks.get(selected_semester, False)
 current_subjects = st.session_state.all_semesters[selected_semester]
 
-# TOP-LEVEL MODULE TABS
-main_tab_attendance, main_tab_assignments, main_tab_exams, main_tab_timetable, main_tab_notes = st.tabs([
-    "📚 Attendance & SGPA", "📝 Assignments & Tasks", "📅 Exams & Time Table", "⏰ Daily Timetable", "📖 Notes & Study Material"
-])
+# =========================================================
+# PAGE 1: HOME / DASHBOARD OVERVIEW
+# =========================================================
+if app_page == "🏠 Home / Dashboard Overview":
+    st.title("📚 Student Academic & Attendance Hub")
+    st.markdown(f"Welcome back, **{user_name}**! Here is your quick academic overview.")
+
+    # Calculate overall CGPA
+    overall_weighted_gp = 0.0
+    overall_credits = 0
+    total_subjects_count = 0
+    for sem, subj_list in st.session_state.all_semesters.items():
+        if subj_list:
+            for s in subj_list:
+                total_subjects_count += 1
+                overall_weighted_gp += s["credits"] * s.get("grade_point", 0.0)
+                overall_credits += s["credits"]
+
+    cgpa = (overall_weighted_gp / overall_credits) if overall_credits > 0 else 0.0
+
+    # Quick metric cards
+    c_m1, c_m2, c_m3 = st.columns(3)
+    with c_m1:
+        st.metric(label="Overall CGPA", value=f"{cgpa:.2f} / 10.0")
+    with c_m2:
+        st.metric(label="Active Semester", value=selected_semester)
+    with c_m3:
+        st.metric(label="Total Registered Subjects", value=total_subjects_count)
+
+    st.markdown("---")
+    st.subheader("⚡ Quick Navigation Shortcuts")
+    st.markdown("Select any section from the sidebar or click below to quickly jump into your modules:")
+
+    col_q1, col_q2, col_q3 = st.columns(3)
+    with col_q1:
+        st.markdown("### 📚 Attendance")
+        st.write("Track attendance percentage, calculate skips, and manage subject records.")
+    with col_q2:
+        st.markdown("### 📝 Assignments")
+        st.write("Monitor project deadlines, task countdowns, and submissions.")
+    with col_q3:
+        st.markdown("### 📖 Notes Hub")
+        st.write("Access lecture materials, PDFs, and uploaded reference notes.")
+
+    st.markdown("---")
+    st.subheader("📅 Today's Schedule Overview")
+    current_day_name = get_ist_time().strftime("%A")
+    all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
+    today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+
+    if today_entries:
+        for entry in today_entries:
+            st.info(f"🕒 **{entry['start_time']} - {entry['end_time']}** | Subject: **[{entry['subject_code']}]** | Room: `{entry['room_number']}`")
+    else:
+        st.success(f"🎉 No classes scheduled for today ({current_day_name})!")
 
 # =========================================================
-# TAB 1: ATTENDANCE & SGPA MANAGEMENT
+# PAGE 2: ATTENDANCE & SGPA MANAGER
 # =========================================================
-with main_tab_attendance:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Attendance Menu")
+elif app_page == "📚 Attendance & SGPA Manager":
+    st.title("📚 Attendance & SGPA Management")
 
-    if "nav_mode" not in st.session_state:
-        st.session_state.nav_mode = "Data Entry & Management"
+    # Sub-navigation for Attendance inside the page
+    att_sub_mode = st.radio(
+        "Select Action",
+        options=["📊 Calculation & Analytics Dashboard", "📌 Add New Subjects", "🔄 Update Existing Records"],
+        horizontal=True
+    )
 
-    if st.sidebar.button("📝 ENTER DETAILS", key="nav_enter"):
-        st.session_state.nav_mode = "Data Entry & Management"
-        st.rerun()
-
-    if st.sidebar.button("🔄 UPDATE", key="nav_update"):
-        st.session_state.nav_mode = "Update Records"
-        st.rerun()
-
-    if st.sidebar.button("📊 CALCULATE", key="nav_calc"):
-        st.session_state.nav_mode = "Calculation Dashboard"
-        st.rerun()
-
-    nav_mode = st.session_state.nav_mode
-
-    if nav_mode == "Data Entry & Management":
+    if att_sub_mode == "📌 Add New Subjects":
         st.header(f"📌 Add Subjects: {selected_semester}")
-
         if is_locked:
             st.warning(f"🔒 {selected_semester} is permanently fixed/locked. No further modifications can be made.")
         else:
-            st.markdown(f"Register your subjects, credits, and current attendance stats for **{selected_semester}**.")
-
             with st.form(f"add_subject_form_{selected_semester}", clear_on_submit=True):
-                st.subheader("New Subject Registration")
                 col1, col2, col3, col4, col5, col6 = st.columns([2, 3, 1, 1, 1, 1])
                 with col1:
                     new_code = st.text_input("Subject Code", placeholder="e.g. TCS-401")
@@ -1097,17 +948,12 @@ with main_tab_attendance:
             for idx, subj in enumerate(current_subjects, 1):
                 att_date = subj.get("attendance_date", str(date.today()))
                 st.markdown(f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)")
-        else:
-            st.info(f"No subjects added for {selected_semester} yet.")
 
-    elif nav_mode == "Update Records":
+    elif att_sub_mode == "🔄 Update Existing Records":
         st.header(f"🔄 Update Records: {selected_semester}")
-
         if is_locked:
             st.warning(f"🔒 {selected_semester} is permanently fixed/locked. Records cannot be updated.")
         else:
-            st.markdown(f"Update your attendance or final grade points for **{selected_semester}**.")
-
             if current_subjects:
                 updated_subjects = []
                 data_changed = False
@@ -1129,12 +975,9 @@ with main_tab_attendance:
 
                 for i, subj in enumerate(current_subjects):
                     existing_date_str = subj.get("attendance_date", str(date.today()))
-
                     with st.expander(f"📖 [{subj['code']}] {subj['name']} (Credits: {subj['credits']} | Last Updated: {existing_date_str})"):
-                        col_del, _ = st.columns([1, 4])
-                        with col_del:
-                            if st.button("🗑️ Delete", key=f"del_{selected_semester}_{i}"):
-                                confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
+                        if st.button("🗑️ Delete Subject", key=f"del_{selected_semester}_{i}"):
+                            confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
 
                         c1, c2, c3 = st.columns(3)
                         with c1:
@@ -1183,181 +1026,124 @@ with main_tab_attendance:
             else:
                 st.info(f"No subjects found for {selected_semester}.")
 
-    elif nav_mode == "Calculation Dashboard":
+    elif att_sub_mode == "📊 Calculation & Analytics Dashboard":
         st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
+        sem_subjects = current_subjects
 
-        overall_weighted_gp = 0.0
-        overall_credits = 0
-        has_any_subjects = False
+        if sem_subjects:
+            att_data = []
+            sem_weighted_gp = 0.0
+            sem_credits = 0
+            all_grades_entered = True
 
-        for sem, subj_list in st.session_state.all_semesters.items():
-            if subj_list:
-                has_any_subjects = True
-                for s in subj_list:
-                    overall_weighted_gp += s["credits"] * s.get("grade_point", 0.0)
-                    overall_credits += s["credits"]
+            for idx, subj in enumerate(sem_subjects, 1):
+                if subj["grade_point"] <= 0.0:
+                    all_grades_entered = False
 
-        if not has_any_subjects:
-            st.warning("No subjects found in any semester.")
-        else:
-            cgpa = (overall_weighted_gp / overall_credits) if overall_credits > 0 else 0.0
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                st.metric(label="Overall CGPA (All Semesters)", value=f"{cgpa:.2f} / 10.0")
+                att = subj["attended"]
+                cond = subj["conducted"]
+                att_date = subj.get("attendance_date", str(date.today()))
+                pct = (att / cond * 100) if cond > 0 else 0.0
 
-            st.markdown("---")
-            sem_subjects = current_subjects
-
-            if sem_subjects:
-                att_data = []
-                sem_weighted_gp = 0.0
-                sem_credits = 0
-                all_grades_entered = True
-
-                for idx, subj in enumerate(sem_subjects, 1):
-                    if subj["grade_point"] <= 0.0:
-                        all_grades_entered = False
-
-                    att = subj["attended"]
-                    cond = subj["conducted"]
-                    att_date = subj.get("attendance_date", str(date.today()))
-                    pct = (att / cond * 100) if cond > 0 else 0.0
-
-                    if pct >= default_target:
-                        max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
-                        current_status = f"Safe (Can skip {max_skips})"
-                    else:
-                        needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
-                        current_status = f"Short (Need next {max(1, needed_consecutive)})"
-
-                    att_data.append({
-                        "S.No.": idx,
-                        "Code": subj["code"],
-                        "Subject": subj["name"],
-                        "Credits": subj["credits"],
-                        "Attended": att,
-                        "Conducted": cond,
-                        "Percentage": round(pct, 2),
-                        "Current Status": current_status,
-                        "Grade Point": subj["grade_point"],
-                        "Last Updated": att_date,
-                    })
-
-                    sem_weighted_gp += subj["credits"] * subj["grade_point"]
-                    sem_credits += subj["credits"]
-
-                df = pd.DataFrame(att_data)
-                df.set_index("S.No.", inplace=True)
-                sgpa = (sem_weighted_gp / sem_credits) if sem_credits > 0 else 0.0
-
-                st.markdown("---")
-                st.subheader(f"📌 Academic Performance & SGPA ({selected_semester})")
-                st.metric(label=f"Current {selected_semester} SGPA", value=f"{sgpa:.2f} / 10.0")
-
-                st.markdown("---")
-                st.subheader("📋 Attendance & Exam Summary Table")
-                st.dataframe(df, use_container_width=True)
-
-                st.markdown("---")
-                st.subheader("Attendance Percentage vs Target")
-                fig_bar = px.bar(
-                    df.reset_index(),
-                    x="Code",
-                    y="Percentage",
-                    text="Percentage",
-                    color="Percentage",
-                    color_continuous_scale="RdYlGn",
-                    range_y=[0, 100],
-                )
-                fig_bar.add_hline(
-                    y=default_target,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text=f"Target ({default_target}%)",
-                    annotation_position="top right",
-                )
-                fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-                st.plotly_chart(fig_bar, use_container_width=True)
-
-                # Email Dispatcher Hub
-                st.markdown("---")
-                st.subheader("📧 Email Report Dispatcher")
-                if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
-                    subject_text = f"📊 Academic Report - {selected_semester}"
-                    rows_html = ""
-                    for idx, row in df.iterrows():
-                        rows_html += f"""
-                        <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
-                        </tr>
-                        """
-
-                    html_body = f"""
-                    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-                        <h2 style="color: #d90429; text-align: center;">🎓 Student Academic Hub</h2>
-                        <p>Hello <b>{user_name}</b>,</p>
-                        <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
-                        <ul style="list-style: none; padding: 0;">
-                            <li>📅 <b>Semester:</b> {selected_semester}</li>
-                            <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
-                            <li>🏆 <b>Overall CGPA:</b> {cgpa:.2f} / 10.0</li>
-                        </ul>
-                    </div>
-                    """
-                    sent = send_report_email(user_email, subject_text, html_body)
-                    if sent:
-                        st.success(f"Successfully sent the report to **{user_email}**!")
-                    else:
-                        st.error("Failed to send email.")
-
-                # Semester Fixation
-                st.markdown("---")
-                st.subheader(f"🔒 Semester Fixation ({selected_semester})")
-
-                @st.dialog("⚠️ Confirm Permanent Fixation")
-                def confirm_fix_dialog(sem_name):
-                    st.markdown(f"Are you sure you want to **permanently lock {sem_name}**?")
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
-                        if st.button("✅ Yes, Lock Permanently", use_container_width=True):
-                            st.session_state.sem_locks[sem_name] = True
-                            save_lock_to_db(user_email, sem_name, True)
-                            st.success(f"{sem_name} has been permanently locked!")
-                            st.rerun()
-                    with col_c2:
-                        if st.button("❌ Cancel", use_container_width=True):
-                            st.rerun()
-
-                if is_locked:
-                    st.success(f"🔒 Status: {selected_semester} is permanently fixed and locked.")
+                if pct >= default_target:
+                    max_skips = max(0, math.floor((100 * att - default_target * cond) / default_target))
+                    current_status = f"Safe (Can skip {max_skips})"
                 else:
-                    if not all_grades_entered:
-                        st.info("ℹ️ Enter final grade points (> 0.0) for all subjects to unlock fixation.")
-                        st.button("🔒 FIX SEMESTER DATA", disabled=True, use_container_width=True)
-                    else:
-                        if st.button("🔒 FIX SEMESTER DATA", type="primary", use_container_width=True):
-                            confirm_fix_dialog(selected_semester)
-            else:
-                st.info(f"No subjects recorded for {selected_semester}.")
+                    needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
+                    current_status = f"Short (Need next {max(1, needed_consecutive)})"
+
+                att_data.append({
+                    "S.No.": idx,
+                    "Code": subj["code"],
+                    "Subject": subj["name"],
+                    "Credits": subj["credits"],
+                    "Attended": att,
+                    "Conducted": cond,
+                    "Percentage": round(pct, 2),
+                    "Current Status": current_status,
+                    "Grade Point": subj["grade_point"],
+                    "Last Updated": att_date,
+                })
+
+                sem_weighted_gp += subj["credits"] * subj["grade_point"]
+                sem_credits += subj["credits"]
+
+            df = pd.DataFrame(att_data)
+            df.set_index("S.No.", inplace=True)
+            sgpa = (sem_weighted_gp / sem_credits) if sem_credits > 0 else 0.0
+
+            st.metric(label=f"Current {selected_semester} SGPA", value=f"{sgpa:.2f} / 10.0")
+            st.markdown("---")
+            st.subheader("📋 Attendance & Exam Summary Table")
+            st.dataframe(df, use_container_width=True)
+
+            fig_bar = px.bar(
+                df.reset_index(),
+                x="Code",
+                y="Percentage",
+                text="Percentage",
+                color="Percentage",
+                color_continuous_scale="RdYlGn",
+                range_y=[0, 100],
+            )
+            fig_bar.add_hline(
+                y=default_target,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Target ({default_target}%)",
+                annotation_position="top right",
+            )
+            fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+            # Email Dispatcher Hub
+            st.markdown("---")
+            st.subheader("📧 Email Report Dispatcher")
+            if st.button("🚀 DISPATCH REPORT TO MY EMAIL", type="primary", use_container_width=True):
+                rows_html = ""
+                for idx, row in df.iterrows():
+                    rows_html += f"""
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
+                    </tr>
+                    """
+
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                    <h2 style="color: #d90429; text-align: center;">🎓 Student Academic Hub</h2>
+                    <p>Hello <b>{user_name}</b>,</p>
+                    <p>Here is your official academic performance report for <b>{selected_semester}</b>:</p>
+                    <ul>
+                        <li>📅 <b>Semester:</b> {selected_semester}</li>
+                        <li>📊 <b>Current SGPA:</b> {sgpa:.2f} / 10.0</li>
+                    </ul>
+                </div>
+                """
+                if send_report_email(user_email, f"📊 Academic Report - {selected_semester}", html_body):
+                    st.success(f"Successfully sent the report to **{user_email}**!")
+                else:
+                    st.error("Failed to send email.")
+        else:
+            st.info(f"No subjects recorded for {selected_semester}.")
 
 # =========================================================
-# TAB 2: ASSIGNMENTS & TASKS
+# PAGE 3: ASSIGNMENTS & TASKS
 # =========================================================
-with main_tab_assignments:
-    st.header(f"📝 Assignment & Task Tracker ({selected_semester})")
+elif app_page == "📝 Assignments & Tasks":
+    st.title(f"📝 Assignment & Task Tracker ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance manager first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
         with st.expander("➕ Add New Assignment / Project Submission", expanded=True):
             with st.form("add_assignment_form", clear_on_submit=True):
-                col_a1, col_a2 = st.columns([2, 2])
+                col_a1, col_a2 = st.columns(2)
                 with col_a1:
                     sel_sub_str = st.selectbox("Select Subject", options=subject_options)
                     asgn_title = st.text_input("Assignment Title", placeholder="e.g. Lab Report #3")
@@ -1425,19 +1211,19 @@ with main_tab_assignments:
             st.info("No assignments recorded for this semester.")
 
 # =========================================================
-# TAB 3: EXAMS & TIME TABLE
+# PAGE 4: EXAMS & TIMETABLE
 # =========================================================
-with main_tab_exams:
-    st.header(f"📅 Examination Schedule ({selected_semester})")
+elif app_page == "📅 Exams & Timetable":
+    st.title(f"📅 Examination Schedule ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance manager first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
         with st.expander("➕ Log New Exam Date & Syllabus", expanded=True):
             with st.form("add_exam_form", clear_on_submit=True):
-                col_e1, col_e2 = st.columns([2, 2])
+                col_e1, col_e2 = st.columns(2)
                 with col_e1:
                     sel_sub_exam = st.selectbox("Select Subject", options=subject_options, key="exam_sub_sel")
                     exam_type = st.selectbox("Exam Type", options=["Mid-Term Examination", "End-Term Examination", "Quiz / Test"])
@@ -1484,13 +1270,13 @@ with main_tab_exams:
             st.info("No exam schedules logged.")
 
 # =========================================================
-# TAB 4: DAILY TIMETABLE
+# PAGE 5: DAILY SCHEDULE
 # =========================================================
-with main_tab_timetable:
-    st.header(f"⏰ Daily Class Timetable ({selected_semester})")
+elif app_page == "⏰ Daily Schedule":
+    st.title(f"⏰ Daily Class Timetable ({selected_semester})")
     
     if not current_subjects:
-        st.info("ℹ️ Please add subjects in the Attendance tab first.")
+        st.info("ℹ️ Please add subjects in the Attendance manager first.")
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
@@ -1518,7 +1304,7 @@ with main_tab_timetable:
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
@@ -1537,10 +1323,10 @@ with main_tab_timetable:
             st.info(f"🎉 No classes scheduled for today ({current_day_name})!")
 
 # =========================================================
-# TAB 5: NOTES & STUDY MATERIAL HUB
+# PAGE 6: NOTES & STUDY MATERIAL HUB
 # =========================================================
-with main_tab_notes:
-    st.header(f"📖 Notes & Study Material Repository ({selected_semester})")
+elif app_page == "📖 Notes & Study Material":
+    st.title(f"📖 Notes & Study Material Repository ({selected_semester})")
     
     user_perms = get_user_material_permissions(user_email, is_admin)
     
