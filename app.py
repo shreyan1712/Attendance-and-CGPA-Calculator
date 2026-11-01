@@ -126,22 +126,6 @@ if "reset_step" not in st.session_state:
     st.session_state.reset_email = None
 
 if not st.session_state.authenticated:
-    # Polished styling for the auth view
-    st.markdown(
-        """
-        <style>
-        .auth-container {
-            background: rgba(14, 17, 23, 0.6);
-            border: 1px solid rgba(255, 183, 3, 0.2);
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     st.title("📚 Student Academic & Attendance Hub")
     st.markdown("### Secure Cloud Login & Registration Portal")
 
