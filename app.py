@@ -570,10 +570,17 @@ def get_user_material_permissions(email, is_admin_user=False):
         return {"can_access": False, "can_upload": False}
 
 
-def load_materials_from_db(semester):
+def load_materials_from_db(semester, email=None):
     try:
         resp = supabase.table("study_materials").select("*").eq("semester", semester).execute()
-        return resp.data if resp.data else []
+        mats = resp.data if resp.data else []
+        filtered = []
+        for m in mats:
+            approved = m.get("is_approved", True)
+            uploader = m.get("uploader_email")
+            if approved or (email and uploader == email):
+                filtered.append(m)
+        return filtered
     except Exception:
         return []
 
@@ -788,6 +795,44 @@ if is_admin and admin_mode:
                     }, on_conflict="user_email").execute()
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
+
+        # Study Material Moderation & Approval Queue (NEW FEATURE)
+        st.markdown("---")
+        st.subheader("📋 Study Material Moderation & Approval Queue")
+        try:
+            pending_resp = supabase.table("study_materials").select("*").eq("is_approved", False).execute()
+            pending_materials = pending_resp.data if pending_resp.data else []
+            if pending_materials:
+                st.info(f"There are **{len(pending_materials)}** study material(s) waiting for approval.")
+                for p_mat in pending_materials:
+                    with st.container():
+                        col_pm1, col_pm2, col_pm3, col_pm4 = st.columns([2, 2, 2, 2])
+                        with col_pm1:
+                            st.markdown(f"**[{p_mat['subject_code']}] {p_mat['title']}**")
+                            st.caption(f"Sem: {p_mat['semester']} | Type: `{p_mat['material_type']}`")
+                        with col_pm2:
+                            st.caption(f"Uploaded by: `{p_mat['uploader_email']}`")
+                            if p_mat.get("description"):
+                                st.caption(f"Desc: {p_mat['description']}")
+                        with col_pm3:
+                            st.markdown(f"🔗 [Open Link]({p_mat['file_url']})")
+                        with col_pm4:
+                            col_ap_btn1, col_ap_btn2 = st.columns(2)
+                            with col_ap_btn1:
+                                if st.button("✅ Approve", key=f"appr_{p_mat['id']}"):
+                                    supabase.table("study_materials").update({"is_approved": True}).eq("id", p_mat['id']).execute()
+                                    st.success("Material approved!")
+                                    st.rerun()
+                            with col_ap_btn2:
+                                if st.button("❌ Reject", key=f"rej_{p_mat['id']}"):
+                                    supabase.table("study_materials").delete().eq("id", p_mat['id']).execute()
+                                    st.success("Material rejected & deleted.")
+                                    st.rerun()
+                        st.divider()
+            else:
+                st.success("🎉 No pending study materials in the queue. All clear!")
+        except Exception as mod_err:
+            st.error(f"Error loading moderation queue: {mod_err}")
 
         st.markdown("---")
         st.subheader("📢 Direct Messaging & Broadcast Hub")
@@ -1395,19 +1440,23 @@ elif current_page == "Notes":
                                     "title": mat_title.strip(),
                                     "description": mat_desc.strip() if mat_desc else "",
                                     "material_type": saved_type,
-                                    "file_url": final_url
+                                    "file_url": final_url,
+                                    "is_approved": is_admin
                                 }).execute()
-                                st.success("Resource uploaded successfully!")
+                                st.success("Resource uploaded successfully! Awaiting admin approval." if not is_admin else "Resource uploaded and published successfully!")
                                 st.rerun()
 
         st.markdown("---")
-        materials = load_materials_from_db(selected_semester)
+        materials = load_materials_from_db(selected_semester, user_email)
         if materials:
             for mat in materials:
+                is_approved = mat.get("is_approved", True)
+                status_label = "" if is_approved else " ⏳ *(Pending Admin Approval)*"
+                
                 with st.container():
                     col_res1, col_res2, col_res3 = st.columns([3, 2, 1])
                     with col_res1:
-                        st.markdown(f"**[{mat['subject_code']}] {mat['title']}** (`{mat['material_type']}`)")
+                        st.markdown(f"**[{mat['subject_code']}] {mat['title']}** (`{mat['material_type']}`){status_label}")
                         if mat.get("description"):
                             st.caption(mat["description"])
                         st.caption(f"Uploaded by: `{mat['uploader_email']}`")
@@ -1433,4 +1482,4 @@ elif current_page == "Notes":
                                 st.rerun()
                     st.divider()
         else:
-            st.info("No study materials uploaded for this semester.")
+            st.info("No approved study materials available for this semester.")
