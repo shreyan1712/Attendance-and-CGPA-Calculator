@@ -138,14 +138,20 @@ if "admin_page" not in st.session_state:
     st.session_state.admin_page = "AdminHome"
 
 # ---------------------------------------------------------
-# GLASSMORPHISM, MICRO-INTERACTIONS, HIERARCHY & NATIVE COMPONENTS CSS ENGINE
+# GLASSMORPHISM, MICRO-INTERACTIONS, HIERARCHY & SMOOTH TRANSITIONS CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
     <style>
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
     .stApp {
         background: radial-gradient(circle at 50% 0%, #161b22 0%, #0d1117 100%) !important;
         color: #c9d1d9 !important;
+        animation: fadeIn 0.3s ease-in-out !important;
     }
     
     /* Typography & Hierarchy Improvements */
@@ -255,11 +261,7 @@ st.markdown(
         backdrop-filter: blur(6px) !important;
     }
 
-    /* ----------------------------------------------------- */
-    /* CUSTOMIZING NATIVE COMPONENTS (NEW LAYER)              */
-    /* ----------------------------------------------------- */
-
-    /* Alert / Notification Banners (st.info, st.success, etc.) */
+    /* Native Components Customization */
     div[data-baseweb="notification"], .stAlert {
         background: rgba(22, 27, 34, 0.85) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -270,7 +272,6 @@ st.markdown(
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
     }
 
-    /* File Uploader Customization */
     [data-testid="stFileUploader"] section {
         background: rgba(13, 17, 23, 0.75) !important;
         border: 2px dashed rgba(255, 183, 3, 0.4) !important;
@@ -284,7 +285,6 @@ st.markdown(
         box-shadow: 0 0 15px rgba(255, 183, 3, 0.2) !important;
     }
 
-    /* Tabs Customization (st.tabs) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: rgba(13, 17, 23, 0.6);
@@ -307,7 +307,6 @@ st.markdown(
         border: 1px solid rgba(255, 183, 3, 0.4) !important;
     }
 
-    /* DataFrame / Table Customization */
     [data-testid="stDataFrame"], .stDataFrame {
         border-radius: 12px !important;
         overflow: hidden !important;
@@ -1757,7 +1756,7 @@ elif current_page == "Schedule":
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
