@@ -923,15 +923,25 @@ if current_page == "Home":
             st.session_state.current_page = "Exams"
             st.rerun()
 
-    col_btn4, col_btn5, _ = st.columns(3)
-    with col_btn4:
-        if st.button("⏰ Daily Schedule", use_container_width=True, type="primary"):
-            st.session_state.current_page = "Schedule"
-            st.rerun()
-    with col_btn5:
-        if st.button("📖 Notes & Study Material", use_container_width=True, type="primary"):
-            st.session_state.current_page = "Notes"
-            st.rerun()
+    user_perms_home = get_user_material_permissions(user_email, is_admin)
+    has_notes_access = user_perms_home.get("can_access", False)
+
+    if has_notes_access:
+        col_btn4, col_btn5, _ = st.columns(3)
+        with col_btn4:
+            if st.button("⏰ Daily Schedule", use_container_width=True, type="primary"):
+                st.session_state.current_page = "Schedule"
+                st.rerun()
+        with col_btn5:
+            if st.button("📖 Notes & Study Material", use_container_width=True, type="primary"):
+                st.session_state.current_page = "Notes"
+                st.rerun()
+    else:
+        col_btn4, _ = st.columns(2)
+        with col_btn4:
+            if st.button("⏰ Daily Schedule", use_container_width=True, type="primary"):
+                st.session_state.current_page = "Schedule"
+                st.rerun()
 
     st.markdown("---")
     st.subheader("📅 Today's Schedule Overview")
