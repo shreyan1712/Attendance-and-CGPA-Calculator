@@ -993,6 +993,12 @@ if is_admin and admin_mode:
                     st.session_state.admin_page = "Eavesdropper"
                     st.rerun()
 
+            col_ap7, _, _ = st.columns(3)
+            with col_ap7:
+                if st.button("🔗 Share Course Data", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "DataSharer"
+                    st.rerun()
+
         except Exception as err:
             st.error(f"Error loading admin dashboard metrics: {err}")
 
@@ -1238,6 +1244,94 @@ if is_admin and admin_mode:
                         st.error("❌ Failed to dispatch email. Please check Resend API configuration.")
         except Exception as eavesdrop_err:
             st.error(f"Error during eavesdropping: {eavesdrop_err}")
+
+    elif current_admin_page == "DataSharer":
+        render_admin_back()
+        st.subheader("🔗 Share Course Data / Timetable Cloner")
+        st.markdown("Easily clone your subject structures (names, codes, credits) or timetable slots into another student's account without exposing your attendance numbers or grades.")
+
+        try:
+            users_resp = supabase.table("users").select("name, email").execute()
+            users_list = users_resp.data if users_resp.data else []
+            other_users = [u for u in users_list if u["email"] != user_email]
+
+            if other_users:
+                user_options = {f"{u['name']} ({u['email']})": u['email'] for u in other_users}
+                target_user_label = st.selectbox("Select Recipient Student", options=list(user_options.keys()))
+                target_user_email = user_options[target_user_label]
+                
+                target_sem = st.selectbox("Select Semester to Populate", options=[f"Semester {i}" for i in range(1, 9)])
+                
+                st.markdown("#### Choose What Data to Copy:")
+                copy_subjects = st.checkbox("📚 Copy Subject Structure (Codes, Names & Credits)", value=True)
+                copy_timetable = st.checkbox("⏰ Copy Daily Timetable Slots & Lecture Rooms", value=True)
+                copy_exams = st.checkbox("📅 Copy Exam Schedule & Syllabi Outline", value=False)
+
+                if st.button("🚀 CLONE & SHARE DATA TO STUDENT", type="primary"):
+                    success_msgs = []
+                    
+                    # 1. Copy Subject Structure (Resetting personal attendance numbers to zero)
+                    if copy_subjects:
+                        admin_sem_data = load_data_from_db(user_email)
+                        my_subjects = admin_sem_data.get(target_sem, [])
+                        if my_subjects:
+                            cleaned_subjects = []
+                            for s in my_subjects:
+                                cleaned_subjects.append({
+                                    "code": s["code"],
+                                    "name": s["name"],
+                                    "credits": s["credits"],
+                                    "attended": 0,
+                                    "conducted": 0,
+                                    "grade_point": 0.0,
+                                    "attendance_date": str(date.today()),
+                                })
+                            save_data_to_db(target_user_email, target_sem, cleaned_subjects)
+                            success_msgs.append(f"Copied {len(cleaned_subjects)} subjects")
+                        else:
+                            st.warning(f"You have no subjects saved in your own {target_sem} to share.")
+
+                    # 2. Copy Timetable Entries
+                    if copy_timetable:
+                        my_tt = load_timetable_from_db(user_email, target_sem)
+                        if my_tt:
+                            for tt_slot in my_tt:
+                                save_timetable_to_db(
+                                    target_user_email,
+                                    target_sem,
+                                    tt_slot["day_of_week"],
+                                    tt_slot["subject_code"],
+                                    tt_slot["start_time"],
+                                    tt_slot["end_time"],
+                                    tt_slot.get("room_number", "N/A")
+                                )
+                            success_msgs.append(f"Copied {len(my_tt)} timetable slots")
+                        else:
+                            st.warning(f"You have no timetable slots saved in your own {target_sem} to share.")
+
+                    # 3. Copy Exam Schedules
+                    if copy_exams:
+                        my_exams = load_exams_from_db(user_email, target_sem)
+                        if my_exams:
+                            for ex in my_exams:
+                                save_exam_to_db(
+                                    target_user_email,
+                                    target_sem,
+                                    ex["subject_code"],
+                                    ex["exam_type"],
+                                    ex["exam_date"],
+                                    ex.get("syllabus", "")
+                                )
+                            success_msgs.append(f"Copied {len(my_exams)} exam schedules")
+                        else:
+                            st.warning(f"You have no exams saved in your own {target_sem} to share.")
+
+                    if success_msgs:
+                        st.success(f"✅ Successfully shared: {', '.join(success_msgs)} to **{target_user_email}** for {target_sem}!")
+            else:
+                st.info("No other registered users found in the system.")
+        except Exception as share_err:
+            st.error(f"Error while sharing data: {share_err}")
 
     st.stop()
 
