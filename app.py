@@ -138,7 +138,7 @@ if "admin_page" not in st.session_state:
     st.session_state.admin_page = "AdminHome"
 
 # ---------------------------------------------------------
-# GLASSMORPHISM, MICRO-INTERACTIONS, WHITESPACE & HIERARCHY CSS ENGINE
+# GLASSMORPHISM, MICRO-INTERACTIONS, HIERARCHY & NATIVE COMPONENTS CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -175,6 +175,7 @@ st.markdown(
         background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,183,3,0.3), rgba(255,255,255,0)) !important;
     }
 
+    /* Metric Cards */
     [data-testid="stMetric"] {
         background: rgba(22, 27, 34, 0.7) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -198,6 +199,8 @@ st.markdown(
         font-weight: 800 !important;
         filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
     }
+
+    /* Expanders */
     div[data-testid="stExpander"] {
         background: rgba(22, 27, 34, 0.6) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -212,6 +215,8 @@ st.markdown(
         border-color: rgba(255, 255, 255, 0.22) !important;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
     }
+
+    /* Input & Select Fields */
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
         background-color: rgba(13, 17, 23, 0.85) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -224,11 +229,15 @@ st.markdown(
         border-color: #ffb703 !important;
         box-shadow: 0 0 12px rgba(255, 183, 3, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
     }
+
+    /* Sidebar */
     [data-testid="stSidebar"] {
         background-color: #0b0f15 !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
         padding-top: 1rem !important;
     }
+
+    /* Buttons */
     .stButton button {
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
         padding: 0.5rem 1rem !important;
@@ -244,6 +253,66 @@ st.markdown(
         border-radius: 10px !important;
         box-shadow: 0 4px 15px rgba(217, 4, 41, 0.3) !important;
         backdrop-filter: blur(6px) !important;
+    }
+
+    /* ----------------------------------------------------- */
+    /* CUSTOMIZING NATIVE COMPONENTS (NEW LAYER)              */
+    /* ----------------------------------------------------- */
+
+    /* Alert / Notification Banners (st.info, st.success, etc.) */
+    div[data-baseweb="notification"], .stAlert {
+        background: rgba(22, 27, 34, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        color: #c9d1d9 !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* File Uploader Customization */
+    [data-testid="stFileUploader"] section {
+        background: rgba(13, 17, 23, 0.75) !important;
+        border: 2px dashed rgba(255, 183, 3, 0.4) !important;
+        border-radius: 14px !important;
+        padding: 1.5rem !important;
+        transition: all 0.3s ease !important;
+    }
+    [data-testid="stFileUploader"] section:hover {
+        border-color: #ffb703 !important;
+        background: rgba(22, 27, 34, 0.85) !important;
+        box-shadow: 0 0 15px rgba(255, 183, 3, 0.2) !important;
+    }
+
+    /* Tabs Customization (st.tabs) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: rgba(13, 17, 23, 0.6);
+        padding: 6px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent !important;
+        border-radius: 8px !important;
+        color: #8b949e !important;
+        font-weight: 600 !important;
+        padding: 8px 16px !important;
+        transition: all 0.25s ease !important;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85)) !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 15px rgba(217, 4, 41, 0.3) !important;
+        border: 1px solid rgba(255, 183, 3, 0.4) !important;
+    }
+
+    /* DataFrame / Table Customization */
+    [data-testid="stDataFrame"], .stDataFrame {
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5) !important;
     }
     </style>
     """,
