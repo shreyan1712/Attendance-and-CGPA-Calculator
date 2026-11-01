@@ -134,6 +134,8 @@ if "show_admin_login" not in st.session_state:
     st.session_state.show_admin_login = False
 if "admin_active_tab" not in st.session_state:
     st.session_state.admin_active_tab = True
+if "admin_page" not in st.session_state:
+    st.session_state.admin_page = "AdminHome"
 
 # ---------------------------------------------------------
 # GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
@@ -746,7 +748,7 @@ if is_admin:
             st.rerun()
         admin_mode = False
     else:
-        # Dynamically switch between opening the admin dashboard and viewing the student hub
+        # Dynamically switch between viewing student hub and locking admin mode (top header button removed)
         col_sb1, col_sb2 = st.sidebar.columns(2)
         with col_sb1:
             if st.session_state.admin_active_tab:
@@ -762,6 +764,7 @@ if is_admin:
                 st.session_state.admin_unlocked = False
                 st.session_state.show_admin_login = False
                 st.session_state.admin_active_tab = True
+                st.session_state.admin_page = "AdminHome"
                 st.rerun()
         
         admin_mode = st.session_state.admin_active_tab
@@ -795,6 +798,7 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
                     st.session_state.admin_unlocked = True
                     st.session_state.show_admin_login = False
                     st.session_state.admin_active_tab = True
+                    st.session_state.admin_page = "AdminHome"
                     st.success("Authentication successful! Unlocking admin dashboard...")
                     st.rerun()
                 else:
@@ -802,59 +806,95 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
     st.stop()
 
 # ---------------------------------------------------------
-# ADMIN DASHBOARD VIEW
+# ADMIN DASHBOARD VIEW (HOMEPAGE + SUB-PAGES ARCHITECTURE)
 # ---------------------------------------------------------
 if is_admin and admin_mode:
-    col_head1, col_head2 = st.columns([6, 2])
-    with col_head1:
-        st.header("🕵️ System Administrator Dashboard")
-        st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, and inspect reports.")
-    with col_head2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("👈 Back to Student Hub", type="primary", use_container_width=True):
-            st.session_state.admin_active_tab = False
+    def render_admin_back():
+        if st.button("🏠 Back to Admin Dashboard", type="secondary"):
+            st.session_state.admin_page = "AdminHome"
             st.rerun()
 
-    # Maintenance Mode Switcher in Admin Panel
-    st.markdown("---")
-    st.subheader("🛠️ Maintenance Mode Control")
-    current_maint_status = check_maintenance_mode()
-    
-    col_m1, col_m2 = st.columns([2, 2])
-    with col_m1:
-        st.markdown(f"Current Status: **{'🔴 ACTIVE (Site Locked for Users)'}**" if current_maint_status else "Current Status: **🟢 NORMAL (Site Accessible)**")
-    with col_m2:
-        if current_maint_status:
-            if st.button("🟢 DISABLE MAINTENANCE MODE", type="primary", use_container_width=True):
-                set_maintenance_mode(False)
-                st.success("Maintenance mode disabled! Users can now log back in.")
-                st.rerun()
-        else:
-            if st.button("🔴 ENABLE MAINTENANCE MODE", type="primary", use_container_width=True):
-                set_maintenance_mode(True)
-                st.warning("Maintenance mode enabled! All users have been logged out/blocked.")
-                st.rerun()
+    current_admin_page = st.session_state.get("admin_page", "AdminHome")
 
-    try:
-        users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
-        att_resp = supabase.table("student_attendance").select("*").execute()
-        locks_resp = supabase.table("semester_locks").select("*").execute()
+    if current_admin_page == "AdminHome":
+        st.header("🕵️ System Administrator Dashboard")
+        st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, backups, and secret report inspections.")
 
-        users_list = users_resp.data if users_resp.data else []
-        att_list = att_resp.data if att_resp.data else []
-        locks_list = locks_resp.data if locks_resp.data else []
+        try:
+            users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
+            att_resp = supabase.table("student_attendance").select("*").execute()
+            locks_resp = supabase.table("semester_locks").select("*").execute()
 
-        c_stat1, c_stat2, c_stat3 = st.columns(3)
-        with c_stat1:
-            st.metric("Total Registered Users", len(users_list))
-        with c_stat2:
-            st.metric("Active Semester Records", len(att_list))
-        with c_stat3:
-            locked_count = len([l for l in locks_list if l.get("is_locked")])
-            st.metric("Locked Semesters", locked_count)
+            users_list = users_resp.data if users_resp.data else []
+            att_list = att_resp.data if att_resp.data else []
+            locks_list = locks_resp.data if locks_resp.data else []
 
-        # Master System Backup Feature
-        st.markdown("---")
+            c_stat1, c_stat2, c_stat3 = st.columns(3)
+            with c_stat1:
+                st.metric("Total Registered Users", len(users_list))
+            with c_stat2:
+                st.metric("Active Semester Records", len(att_list))
+            with c_stat3:
+                locked_count = len([l for l in locks_list if l.get("is_locked")])
+                st.metric("Locked Semesters", locked_count)
+
+            st.markdown("---")
+            st.subheader("⚡ Admin Features & Modules")
+            st.markdown("Select any admin tool below:")
+
+            col_ap1, col_ap2, col_ap3 = st.columns(3)
+            with col_ap1:
+                if st.button("🛠️ Maintenance Mode", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Maintenance"
+                    st.rerun()
+            with col_ap2:
+                if st.button("💾 Master System Backup", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Backup"
+                    st.rerun()
+            with col_ap3:
+                if st.button("🔑 Permissions Manager", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Permissions"
+                    st.rerun()
+
+            col_ap4, col_ap5, col_ap6 = st.columns(3)
+            with col_ap4:
+                if st.button("📋 Material Moderation", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Moderation"
+                    st.rerun()
+            with col_ap5:
+                if st.button("📢 Broadcast Hub", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Broadcast"
+                    st.rerun()
+            with col_ap6:
+                if st.button("🕵️ Secret User Report Eavesdropper", use_container_width=True, type="primary"):
+                    st.session_state.admin_page = "Eavesdropper"
+                    st.rerun()
+
+        except Exception as err:
+            st.error(f"Error loading admin dashboard metrics: {err}")
+
+    elif current_admin_page == "Maintenance":
+        render_admin_back()
+        st.subheader("🛠️ Maintenance Mode Control")
+        current_maint_status = check_maintenance_mode()
+        
+        col_m1, col_m2 = st.columns([2, 2])
+        with col_m1:
+            st.markdown(f"Current Status: **{'🔴 ACTIVE (Site Locked for Users)'}**" if current_maint_status else "Current Status: **🟢 NORMAL (Site Accessible)**")
+        with col_m2:
+            if current_maint_status:
+                if st.button("🟢 DISABLE MAINTENANCE MODE", type="primary", use_container_width=True):
+                    set_maintenance_mode(False)
+                    st.success("Maintenance mode disabled! Users can now log back in.")
+                    st.rerun()
+            else:
+                if st.button("🔴 ENABLE MAINTENANCE MODE", type="primary", use_container_width=True):
+                    set_maintenance_mode(True)
+                    st.warning("Maintenance mode enabled! All users have been logged out/blocked.")
+                    st.rerun()
+
+    elif current_admin_page == "Backup":
+        render_admin_back()
         st.subheader("💾 Master System Backup & Full Asset Archive")
         st.markdown("Download a complete, comprehensive zip archive containing your master JSON database backup, all physical study material files, and a text inventory of all saved web links.")
 
@@ -914,10 +954,12 @@ if is_admin and admin_mode:
             except Exception as backup_err:
                 st.error(f"❌ Failed to generate full system archive: {backup_err}")
 
-        # Study Material Permissions Manager
-        st.markdown("---")
+    elif current_admin_page == "Permissions":
+        render_admin_back()
         st.subheader("🔑 Notes & Study Material Access Control Manager")
-        if users_list:
+        try:
+            users_resp = supabase.table("users").select("username, name, email").execute()
+            users_list = users_resp.data if users_resp.data else []
             all_user_emails = [u["email"] for u in users_list if u["email"] != user_email]
             if all_user_emails:
                 perm_target_user = st.selectbox("Select User to Manage Permissions", options=all_user_emails)
@@ -937,9 +979,11 @@ if is_admin and admin_mode:
                     }, on_conflict="user_email").execute()
                     st.success(f"Updated permissions for **{perm_target_user}**!")
                     st.rerun()
+        except Exception as e:
+            st.error(f"Error loading permissions: {e}")
 
-        # Study Material Moderation & Approval Queue
-        st.markdown("---")
+    elif current_admin_page == "Moderation":
+        render_admin_back()
         st.subheader("📋 Study Material Moderation & Approval Queue")
         try:
             pending_resp = supabase.table("study_materials").select("*").eq("is_approved", False).execute()
@@ -976,27 +1020,101 @@ if is_admin and admin_mode:
         except Exception as mod_err:
             st.error(f"Error loading moderation queue: {mod_err}")
 
-        st.markdown("---")
+    elif current_admin_page == "Broadcast":
+        render_admin_back()
         st.subheader("📢 Direct Messaging & Broadcast Hub")
-        all_emails = [u["email"] for u in users_list]
-        msg_target = st.selectbox("Select Target Audience", options=["ALL"] + all_emails)
-        msg_text = st.text_area("Type Announcement / Message Text")
-        
-        if st.button("🚀 SEND ANNOUNCEMENT", type="primary"):
-            if msg_text.strip():
-                supabase.table("admin_messages").insert({
-                    "sender_email": user_email,
-                    "target_email": msg_target,
-                    "message_text": msg_text.strip(),
-                    "read_by": []
-                }).execute()
-                st.success("Message dispatched successfully!")
-                st.rerun()
-            else:
-                st.error("Message text cannot be empty.")
+        try:
+            users_resp = supabase.table("users").select("email").execute()
+            users_list = users_resp.data if users_resp.data else []
+            all_emails = [u["email"] for u in users_list]
+            msg_target = st.selectbox("Select Target Audience", options=["ALL"] + all_emails)
+            msg_text = st.text_area("Type Announcement / Message Text")
+            
+            if st.button("🚀 SEND ANNOUNCEMENT", type="primary"):
+                if msg_text.strip():
+                    supabase.table("admin_messages").insert({
+                        "sender_email": user_email,
+                        "target_email": msg_target,
+                        "message_text": msg_text.strip(),
+                        "read_by": []
+                    }).execute()
+                    st.success("Message dispatched successfully!")
+                    st.rerun()
+                else:
+                    st.error("Message text cannot be empty.")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
-    except Exception as err:
-        st.error(f"Error loading admin dashboard: {err}")
+    elif current_admin_page == "Eavesdropper":
+        render_admin_back()
+        st.subheader("🕵️ Secret User Report Eavesdropper")
+        st.markdown("Select any registered user and semester to silently email their academic breakdown report directly to your admin inbox without their knowledge.")
+        try:
+            users_resp = supabase.table("users").select("name, email").execute()
+            users_list = users_resp.data if users_resp.data else []
+            if users_list:
+                user_options = {f"{u['name']} ({u['email']})": u['email'] for u in users_list}
+                sel_user_label = st.selectbox("Select Target Student", options=list(user_options.keys()))
+                target_student_email = user_options[sel_user_label]
+                target_sem = st.selectbox("Select Semester", options=[f"Semester {i}" for i in range(1, 9)])
+
+                if st.button("🕵️ SILENTLY SEND STUDENT REPORT TO MY ADMIN EMAIL", type="primary"):
+                    # Load student data
+                    student_sem_data = load_data_from_db(target_student_email)
+                    subj_list = student_sem_data.get(target_sem, [])
+                    
+                    sem_weighted_gp = 0.0
+                    sem_credits = 0
+                    rows_html = ""
+                    for s in subj_list:
+                        att = s["attended"]
+                        cond = s["conducted"]
+                        pct = (att / cond * 100) if cond > 0 else 0.0
+                        gp = s.get("grade_point", 0.0)
+                        sem_weighted_gp += s["credits"] * gp
+                        sem_credits += s["credits"]
+                        
+                        rows_html += f"""
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{s['code']}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{s['name']}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{pct:.1f}% ({att}/{cond})</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">{gp}</td>
+                        </tr>
+                        """
+                    
+                    sgpa = (sem_weighted_gp / sem_credits) if sem_credits > 0 else 0.0
+
+                    secret_report_html = f"""
+                    <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 2px solid #d90429; border-radius: 10px;">
+                        <h2 style="color: #d90429; text-align: center;">🕵️ Secret Surveillance Report</h2>
+                        <p><b>Target Student:</b> {target_student_email}</p>
+                        <p><b>Semester:</b> {target_sem}</p>
+                        <p><b>Calculated SGPA:</b> {sgpa:.2f} / 10.0</p>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                            <thead>
+                                <tr style="background: #f4f4f4;">
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Code</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Subject</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Attendance</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd;">Grade Point</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html if rows_html else '<tr><td colspan="4" style="text-align:center; padding:10px;">No subjects found for this semester.</td></tr>'}
+                            </tbody>
+                        </table>
+                        <p style="font-size: 11px; color: #777; margin-top: 20px; text-align: center;">Generated silently by System Eavesdropper Module.</p>
+                    </div>
+                    """
+
+                    success_sent = send_report_email(user_email, f"🕵️ Eavesdrop Report: {target_student_email} - {target_sem}", secret_report_html)
+                    if success_sent:
+                        st.success(f"✅ Successfully and silently dispatched **{target_student_email}**'s report to your inbox (`{user_email}`)!")
+                    else:
+                        st.error("❌ Failed to dispatch email. Please check Resend API configuration.")
+        except Exception as eavesdrop_err:
+            st.error(f"Error during eavesdropping: {eavesdrop_err}")
 
     st.stop()
 
@@ -1515,7 +1633,7 @@ elif current_page == "Schedule":
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
