@@ -375,7 +375,7 @@ except Exception:
     pass
 
 # ---------------------------------------------------------
-# HIGH-PRECISION GLASSMORPHISM & DEPTH CSS ENGINE
+# GLASSMORPHISM & VIBRANT METRIC ACCENT CSS ENGINE
 # ---------------------------------------------------------
 st.markdown(
     """
@@ -395,6 +395,16 @@ st.markdown(
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
+    }
+
+    /* Vibrant Colored Metric Numbers */
+    [data-testid="stMetricValue"] {
+        background: linear-gradient(135deg, #ffb703 0%, #d90429 50%, #58a6ff 100%) !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        font-size: 2.2rem !important;
+        font-weight: 800 !important;
+        filter: drop-shadow(0 2px 8px rgba(217, 4, 41, 0.3));
     }
     
     /* Glassmorphism Containers & Expanders */
@@ -949,7 +959,7 @@ if current_page == "Home":
     st.subheader("📅 Today's Schedule Overview")
     current_day_name = get_ist_time().strftime("%A")
     all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-    today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+    today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
 
     if today_entries:
         for entry in today_entries:
