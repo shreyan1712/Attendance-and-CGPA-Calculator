@@ -202,7 +202,6 @@ if not st.session_state.authenticated:
                     else:
                         try:
                             clean_username = login_user.strip()
-                            # Query matching exact username or case-insensitive fallback if needed
                             response = (
                                 supabase.table("users")
                                 .select("*")
@@ -210,7 +209,6 @@ if not st.session_state.authenticated:
                                 .execute()
                             )
                             if not response.data:
-                                # Try matching by email if username input looks like an email
                                 response = (
                                     supabase.table("users")
                                     .select("*")
@@ -376,13 +374,101 @@ try:
 except Exception:
     pass
 
-# Custom CSS for Neon Glowing Buttons & UI Polish
+# ---------------------------------------------------------
+# COMPREHENSIVE INTERNAL UI STYLING & NEON DASHBOARD THEME
+# ---------------------------------------------------------
 st.markdown(
     """
     <style>
+    /* Global Main Background & Typography Enhancements */
+    .stApp {
+        background-color: #0d1117;
+        color: #c9d1d9;
+    }
+    
+    /* Elegant Modern Header Styling */
+    h1 {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+        color: #ffffff !important;
+    }
+
+    h2, h3 {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+        color: #f0f6fc !important;
+        font-weight: 700 !important;
+    }
+
+    /* Polished Tab Bar Navigation */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #161b22;
+        padding: 8px 12px;
+        border-radius: 12px;
+        border: 1px solid #30363d;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 44px;
+        white-space: pre;
+        border-radius: 8px;
+        color: #8b949e;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.2s ease-in-out;
+        border: none !important;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #21262d !important;
+        color: #58a6ff !important;
+        border-bottom: 2px solid #58a6ff !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Metric Card Enhancements */
+    [data-testid="stMetricValue"] {
+        font-size: 2rem !important;
+        font-weight: 800 !important;
+        color: #58a6ff !important;
+    }
+    
+    [data-testid="stMetric"] {
+        background: rgba(22, 27, 34, 0.7);
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 1.2rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(6px);
+    }
+
+    /* Container & Expandable Glass Card Styling */
+    .stExpander {
+        background: #161b22 !important;
+        border: 1px solid #30363d !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Input & Form Field Refinements */
+    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
+        background-color: #0d1117 !important;
+        border-color: #30363d !important;
+        border-radius: 8px !important;
+        color: #c9d1d9 !important;
+    }
+
+    div[data-baseweb="input"] > div:focus-within {
+        border-color: #58a6ff !important;
+        box-shadow: 0 0 0 1px #58a6ff !important;
+    }
+
+    /* Custom CSS for Neon Glowing Buttons & Sidebar UI Polish */
     [data-testid="stSidebar"] {
         background-color: #0e1117;
         padding-top: 1rem;
+        border-right: 1px solid #30363d;
     }
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:nth-child(6) button {
         width: 100%; border-radius: 12px; font-weight: 700; font-size: 15px; padding: 12px 15px;
@@ -1432,7 +1518,7 @@ with main_tab_timetable:
         st.subheader(f"📅 Today's Schedule ({current_day_name})")
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        today_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == current_day_name]
         
         if today_entries:
             for entry in today_entries:
