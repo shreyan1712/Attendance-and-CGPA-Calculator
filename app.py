@@ -2046,7 +2046,7 @@ elif current_page == "Schedule":
         )
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        day_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == selected_day_view]
+        day_entries = [t for t in all_timetable_entries if t.get("day_of_week") == selected_day_view]
         
         if day_entries:
             for entry in day_entries:
