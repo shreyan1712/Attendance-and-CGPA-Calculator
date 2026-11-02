@@ -803,8 +803,10 @@ def save_holiday_to_db(email, semester, holiday_date_str, reason):
             "holiday_date": holiday_date_str,
             "reason": reason
         }).execute()
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        st.error(f"Database error saving holiday: {e}")
+        return False
 
 
 def is_second_or_fourth_saturday(d: date):
@@ -1456,7 +1458,7 @@ if current_page == "Home":
         st.success(f"🎉 No classes scheduled for today ({current_day_name})!")
 
 # ---------------------------------------------------------
-# ATTENDANCE & SGPA MANAGER PAGE
+# ATTENDANCE & SGPA MANAGER PAGE (WITH UNIFIED ANALYTICS & FEASIBILITY TABLE)
 # ---------------------------------------------------------
 elif current_page == "Attendance":
     render_back_button()
@@ -1594,19 +1596,67 @@ elif current_page == "Attendance":
                 st.info(f"No subjects found for {selected_semester}.")
 
     elif att_sub_mode == "📊 Calculation & Analytics Dashboard":
-        st.header(f"📊 Calculation & Analytics Dashboard ({selected_semester})")
+        st.header(f"📊 Unified Calculation & Exam Feasibility Dashboard ({selected_semester})")
         sem_subjects = current_subjects
 
         if sem_subjects:
+            # 1. Exam & Working Days Calculation
+            exams_list = load_exams_from_db(user_email, selected_semester)
+            exam_countdown_banner = None
+            remaining_periods_per_subject = {s["code"]: 0 for s in sem_subjects}
+            working_days_count = 0
+            has_exam_schedule = False
+
+            if exams_list:
+                exam_dates = []
+                for ex in exams_list:
+                    dt_obj = datetime.fromisoformat(ex["exam_date"])
+                    if dt_obj.tzinfo is not None:
+                        dt_obj = dt_obj.astimezone(IST)
+                    exam_dates.append(dt_obj.date())
+                
+                first_exam_date = min(exam_dates)
+                today_date = date.today()
+                days_left_to_exam = (first_exam_date - today_date).days
+
+                if days_left_to_exam > 0:
+                    has_exam_schedule = True
+                    custom_holidays_data = load_holidays_from_db(user_email, selected_semester)
+                    holiday_set = {h["holiday_date"] for h in custom_holidays_data}
+                    timetable_slots = load_timetable_from_db(user_email, selected_semester)
+
+                    schedule_map = {}
+                    for slot in timetable_slots:
+                        dname = slot["day_of_week"]
+                        schedule_map.setdefault(dname, []).append(slot["subject_code"])
+
+                    curr = today_date + timedelta(days=1)
+                    while curr < first_exam_date:
+                        is_sunday = (curr.weekday() == 6)
+                        is_2nd_4th_sat = is_second_or_fourth_saturday(curr)
+                        is_custom_holiday = (str(curr) in holiday_set)
+
+                        if not is_sunday and not is_2nd_4th_sat and not is_custom_holiday:
+                            working_days_count += 1
+                            day_name = curr.strftime("%A")
+                            day_subjects = schedule_map.get(day_name, [])
+                            for scode in day_subjects:
+                                if scode in remaining_periods_per_subject:
+                                    remaining_periods_per_subject[scode] += 1
+                        curr += timedelta(days=1)
+
+                    st.info(f"⏳ **Exam Countdown:** {days_left_to_exam} calendar day(s) until your first exam on **{first_exam_date}** | 🏫 **{working_days_count} Working Days** remaining.")
+                else:
+                    st.warning(f"ℹ️ First exam date ({first_exam_date}) has passed or is today.")
+            else:
+                st.caption("💡 *Tip: Log exam dates in the Exams page to calculate exact class periods left before exams.*")
+
+            # 2. Build Unified Analytical Table
             att_data = []
             sem_weighted_gp = 0.0
             sem_credits = 0
-            all_grades_entered = True
 
             for idx, subj in enumerate(sem_subjects, 1):
-                if subj["grade_point"] <= 0.0:
-                    all_grades_entered = False
-
                 att = subj["attended"]
                 cond = subj["conducted"]
                 att_date = subj.get("attendance_date", str(date.today()))
@@ -1619,20 +1669,33 @@ elif current_page == "Attendance":
                     needed_consecutive = math.ceil((default_target * cond - 100 * att) / (100.0 - default_target))
                     current_status = f"Short (Need next {max(1, needed_consecutive)})"
 
-                att_data.append({
+                row_dict = {
                     "S.No.": idx,
                     "Code": subj["code"],
                     "Subject": subj["name"],
                     "Credits": subj["credits"],
-                    "Attended": att,
-                    "Conducted": cond,
-                    "Percentage": round(pct, 2),
-                    "Current Status": current_status,
-                    "Grade Point": subj["grade_point"],
-                    "Last Updated": att_date,
-                })
+                    "Current Attendance": f"{pct:.1f}% ({att}/{cond})",
+                    "Status / Skips": current_status,
+                    "Grade Point": subj.get("grade_point", 0.0),
+                }
 
-                sem_weighted_gp += subj["credits"] * subj["grade_point"]
+                if has_exam_schedule:
+                    rem_classes = remaining_periods_per_subject.get(subj["code"], 0)
+                    proj_attended = att + rem_classes
+                    proj_conducted = cond + rem_classes
+                    proj_pct = (proj_attended / proj_conducted * 100) if proj_conducted > 0 else 0.0
+
+                    if proj_pct >= default_target:
+                        feas_badge = f"✅ Feasible ({proj_pct:.1f}%)"
+                    else:
+                        feas_badge = f"❌ At Risk ({proj_pct:.1f}%)"
+
+                    row_dict["Classes Left"] = rem_classes
+                    row_dict["Max Projected %"] = f"{proj_pct:.1f}%"
+                    row_dict["Exam Feasibility"] = feas_badge
+
+                att_data.append(row_dict)
+                sem_weighted_gp += subj["credits"] * subj.get("grade_point", 0.0)
                 sem_credits += subj["credits"]
 
             df = pd.DataFrame(att_data)
@@ -1641,11 +1704,22 @@ elif current_page == "Attendance":
 
             st.metric(label=f"Current {selected_semester} SGPA", value=f"{sgpa:.2f} / 10.0")
             st.markdown("---")
-            st.subheader("📋 Attendance & Exam Summary Table")
-            st.dataframe(df, use_container_width=True)
+            st.subheader("📋 Comprehensive Academic & Attendance Analysis Table")
+            
+            # Display larger unified dataframe with full column width
+            st.dataframe(df, use_container_width=True, height=len(df)*45 + 40)
 
+            # Bar Chart Visualizer
+            chart_df = []
+            for subj in sem_subjects:
+                att = subj["attended"]
+                cond = subj["conducted"]
+                pct = (att / cond * 100) if cond > 0 else 0.0
+                chart_df.append({"Code": subj["code"], "Percentage": round(pct, 2)})
+            
+            df_chart = pd.DataFrame(chart_df)
             fig_bar = px.bar(
-                df.reset_index(),
+                df_chart,
                 x="Code",
                 y="Percentage",
                 text="Percentage",
@@ -1672,8 +1746,8 @@ elif current_page == "Attendance":
                     <tr>
                         <td style="padding: 8px; border: 1px solid #ddd;">{row['Code']}</td>
                         <td style="padding: 8px; border: 1px solid #ddd;">{row['Subject']}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Percentage']}%</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Status']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Current Attendance']}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">{row['Status / Skips']}</td>
                         <td style="padding: 8px; border: 1px solid #ddd;">{row['Grade Point']}</td>
                     </tr>
                     """
@@ -1778,13 +1852,13 @@ elif current_page == "Assignments":
             st.info("No assignments recorded for this semester.")
 
 # ---------------------------------------------------------
-# EXAMS & TIMETABLE PAGE (WITH HOLIDAY MANAGER & ATTENDANCE FEASIBILITY)
+# EXAMS & TIMETABLE PAGE (WITH DATE RANGE HOLIDAY MANAGER)
 # ---------------------------------------------------------
 elif current_page == "Exams":
     render_back_button()
-    st.title(f"📅 Examination Schedule, Holidays & Feasibility Planner ({selected_semester})")
+    st.title(f"📅 Examination Schedule & Holiday Manager ({selected_semester})")
 
-    exam_tab1, exam_tab2, exam_tab3 = st.tabs(["📅 Exams", "🏖️ Holiday Manager", "⚡ Attendance Feasibility Projection"])
+    exam_tab1, exam_tab2 = st.tabs(["📅 Exam Schedule", "🏖️ Holiday Manager"])
 
     with exam_tab1:
         if not current_subjects:
@@ -1842,128 +1916,77 @@ elif current_page == "Exams":
 
     with exam_tab2:
         st.subheader("🏖️ Holiday Manager")
-        st.markdown("Add specific college holidays, festival breaks, or study leaves. **Note:** All Sundays and **2nd & 4th Saturdays** are automatically counted as holidays.")
+        st.markdown("Add single-day holidays or full date ranges for breaks, festivals, or study leaves.")
         
-        with st.form("add_holiday_form", clear_on_submit=True):
-            col_h1, col_h2 = st.columns(2)
+        with st.form("add_holiday_range_form", clear_on_submit=True):
+            col_h1, col_h2, col_h3 = st.columns([2, 2, 3])
             with col_h1:
-                h_date = st.date_input("Holiday Date", value=date.today())
+                h_start_date = st.date_input("Start Date", value=date.today())
             with col_h2:
-                h_reason = st.text_input("Holiday Reason / Title", placeholder="e.g. Diwali Break / College Fest")
+                h_end_date = st.date_input("End Date (Inclusive)", value=date.today())
+            with col_h3:
+                h_reason = st.text_input("Holiday Reason / Title", placeholder="e.g. Diwali Vacation / Winter Break")
             
-            sub_holiday = st.form_submit_button("Save Holiday", type="primary")
+            sub_holiday = st.form_submit_button("Save Holiday / Range", type="primary")
             if sub_holiday:
                 if not h_reason.strip():
                     st.error("Please enter a holiday reason.")
+                elif h_end_date < h_start_date:
+                    st.error("End Date cannot be earlier than Start Date.")
                 else:
-                    save_holiday_to_db(user_email, selected_semester, str(h_date), h_reason.strip())
-                    st.success(f"Added holiday for {h_date}!")
+                    curr_d = h_start_date
+                    added_count = 0
+                    while curr_d <= h_end_date:
+                        save_holiday_to_db(user_email, selected_semester, str(curr_d), h_reason.strip())
+                        curr_d += timedelta(days=1)
+                        added_count += 1
+                    st.success(f"Successfully saved {added_count} holiday date(s)!")
                     st.rerun()
 
         st.markdown("---")
-        st.subheader("📋 Registered Custom Holidays")
+        st.subheader("📋 Comprehensive Holiday & Off-Day Schedule")
+        
         saved_holidays = load_holidays_from_db(user_email, selected_semester)
-        if saved_holidays:
-            for hol in saved_holidays:
+        custom_dict = {h["holiday_date"]: h for h in saved_holidays}
+
+        # Render complete holiday schedule (Next 60 days overview)
+        holiday_entries_list = []
+        today = date.today()
+        for i in range(0, 90):
+            check_date = today + timedelta(days=i)
+            d_str = str(check_date)
+            
+            is_sun = (check_date.weekday() == 6)
+            is_sat = is_second_or_fourth_saturday(check_date)
+            is_custom = d_str in custom_dict
+
+            if is_custom or is_sun or is_sat:
+                reason = custom_dict[d_str]["reason"] if is_custom else ("Sunday (Weekly Off)" if is_sun else "2nd / 4th Saturday Off")
+                htype = "Custom Holiday" if is_custom else "Automatic Off Day"
+                db_id = custom_dict[d_str].get("id") if is_custom else None
+                
+                holiday_entries_list.append({
+                    "date": check_date,
+                    "date_str": d_str,
+                    "day_name": check_date.strftime("%A"),
+                    "reason": reason,
+                    "type": htype,
+                    "id": db_id
+                })
+
+        if holiday_entries_list:
+            for hol in holiday_entries_list:
                 col_h_info1, col_h_info2 = st.columns([3, 1])
                 with col_h_info1:
-                    st.markdown(f"📅 **{hol['holiday_date']}** — {hol['reason']}")
+                    st.markdown(f"📅 **{hol['date_str']} ({hol['day_name']})** — {hol['reason']} | `{hol['type']}`")
                 with col_h_info2:
-                    if st.button("🗑️ Delete", key=f"del_hol_{hol.get('id', hol['holiday_date'])}"):
-                        try:
+                    if hol["id"]:
+                        if st.button("🗑️ Delete Custom", key=f"del_hol_{hol['id']}"):
                             supabase.table("student_holidays").delete().eq("id", hol['id']).execute()
                             st.rerun()
-                        except Exception:
-                            pass
                 st.divider()
         else:
-            st.info("No custom holidays recorded for this semester.")
-
-    with exam_tab3:
-        st.subheader("⚡ Exam Countdown & Attendance Feasibility Projection")
-        st.markdown("Calculates the exact number of class periods remaining until your first exam (excluding Sundays, 2nd & 4th Saturdays, and custom holidays) to determine if you can mathematically reach your target attendance quota.")
-
-        exams_list = load_exams_from_db(user_email, selected_semester)
-        if not exams_list:
-            st.warning("⚠️ Please log at least one exam date in the **Exams** tab first so the app knows your exam start date.")
-        elif not current_subjects:
-            st.warning("⚠️ Please add subjects in the Attendance manager first.")
-        else:
-            # Find earliest exam date
-            exam_dates = []
-            for ex in exams_list:
-                dt_obj = datetime.fromisoformat(ex["exam_date"])
-                if dt_obj.tzinfo is not None:
-                    dt_obj = dt_obj.astimezone(IST)
-                exam_dates.append(dt_obj.date())
-            
-            first_exam_date = min(exam_dates)
-            today_date = date.today()
-            days_left_to_exam = (first_exam_date - today_date).days
-
-            if days_left_to_exam <= 0:
-                st.error(f"⚠️ The first exam date ({first_exam_date}) has already passed or is today!")
-            else:
-                st.info(f"⏳ **Countdown:** {days_left_to_exam} calendar day(s) until your first exam on **{first_exam_date}** (Target Attendance: `{default_target}%`).")
-
-                # Calculate remaining working days and periods per subject
-                custom_holidays_data = load_holidays_from_db(user_email, selected_semester)
-                holiday_set = {h["holiday_date"] for h in custom_holidays_data}
-                timetable_slots = load_timetable_from_db(user_email, selected_semester)
-
-                # Map day name to list of subject codes
-                schedule_map = {}
-                for slot in timetable_slots:
-                    dname = slot["day_of_week"]
-                    schedule_map.setdefault(dname, []).append(slot["subject_code"])
-
-                remaining_periods_per_subject = {s["code"]: 0 for s in current_subjects}
-                working_days_count = 0
-
-                curr = today_date + timedelta(days=1)
-                while curr < first_exam_date:
-                    is_sunday = (curr.weekday() == 6)
-                    is_2nd_4th_sat = is_second_or_fourth_saturday(curr)
-                    is_custom_holiday = (str(curr) in holiday_set)
-
-                    if not is_sunday and not is_2nd_4th_sat and not is_custom_holiday:
-                        working_days_count += 1
-                        day_name = curr.strftime("%A")
-                        day_subjects = schedule_map.get(day_name, [])
-                        for scode in day_subjects:
-                            if scode in remaining_periods_per_subject:
-                                remaining_periods_per_subject[scode] += 1
-                    curr += timedelta(days=1)
-
-                st.markdown(f"🏫 **Working Days Count:** {working_days_count} working day(s) found between today and your exams.")
-
-                feasibility_data = []
-                for subj in current_subjects:
-                    code = subj["code"]
-                    attended = subj["attended"]
-                    conducted = subj["conducted"]
-                    rem_classes = remaining_periods_per_subject.get(code, 0)
-                    
-                    curr_pct = (attended / conducted * 100) if conducted > 0 else 0.0
-                    proj_attended = attended + rem_classes
-                    proj_conducted = conducted + rem_classes
-                    proj_pct = (proj_attended / proj_conducted * 100) if proj_conducted > 0 else 0.0
-
-                    if proj_pct >= default_target:
-                        status_msg = f"✅ Feasible (Will reach {proj_pct:.1f}% if 100% attended)"
-                    else:
-                        status_msg = f"❌ At Risk (Max possible: {proj_pct:.1f}% < {default_target}%)"
-
-                    feasibility_data.append({
-                        "Code": code,
-                        "Subject": subj["name"],
-                        "Current Attendance": f"{curr_pct:.1f}% ({attended}/{conducted})",
-                        "Remaining Classes": rem_classes,
-                        "Max Projected %": f"{proj_pct:.1f}%",
-                        "Feasibility Status": status_msg
-                    })
-
-                st.dataframe(pd.DataFrame(feasibility_data), use_container_width=True)
+            st.info("No upcoming holidays found.")
 
 # ---------------------------------------------------------
 # DAILY SCHEDULE PAGE (WITH MULTI-DAY TIMETABLE VIEWER)
