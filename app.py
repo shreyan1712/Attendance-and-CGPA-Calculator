@@ -787,6 +787,34 @@ def save_timetable_to_db(email, semester, day_of_week, subject_code, start_time_
         st.error(f"Error saving timetable entry: {e}")
 
 
+def load_holidays_from_db(email, semester):
+    try:
+        resp = supabase.table("student_holidays").select("*").eq("user_email", email).eq("semester", semester).execute()
+        return resp.data if resp.data else []
+    except Exception:
+        return []
+
+
+def save_holiday_to_db(email, semester, holiday_date_str, reason):
+    try:
+        supabase.table("student_holidays").insert({
+            "user_email": email,
+            "semester": semester,
+            "holiday_date": holiday_date_str,
+            "reason": reason
+        }).execute()
+    except Exception:
+        pass
+
+
+def is_second_or_fourth_saturday(d: date):
+    if d.weekday() != 5:
+        return False
+    dom = d.day
+    occurrence = (dom - 1) // 7 + 1
+    return occurrence in [2, 4]
+
+
 def get_user_material_permissions(email, is_admin_user=False):
     if is_admin_user:
         return {"can_access": True, "can_upload": True}
@@ -871,7 +899,6 @@ if is_admin:
             st.rerun()
         admin_mode = False
     else:
-        # Dynamically switch between viewing student hub and locking admin mode (top header button removed)
         col_sb1, col_sb2 = st.sidebar.columns(2)
         with col_sb1:
             if st.session_state.admin_active_tab:
@@ -894,7 +921,7 @@ if is_admin:
 else:
     admin_mode = False
 
-# Screen Takeover for Google Authenticator prompt (prompts only once per login session)
+# Screen Takeover for Google Authenticator prompt
 if is_admin and st.session_state.show_admin_login and not st.session_state.admin_unlocked:
     st.title("🔐 Secure Admin Authentication")
     st.markdown("Please enter your **Google Authenticator 6-digit code** to access the System Administrator Dashboard.")
@@ -1188,7 +1215,6 @@ if is_admin and admin_mode:
                 target_sem = st.selectbox("Select Semester", options=[f"Semester {i}" for i in range(1, 9)])
 
                 if st.button("🕵️ SILENTLY SEND STUDENT REPORT TO MY ADMIN EMAIL", type="primary"):
-                    # Load student data
                     student_sem_data = load_data_from_db(target_student_email)
                     subj_list = student_sem_data.get(target_sem, [])
                     
@@ -1270,7 +1296,6 @@ if is_admin and admin_mode:
                 if st.button("🚀 CLONE & SHARE DATA TO STUDENT", type="primary"):
                     success_msgs = []
                     
-                    # 1. Copy Subject Structure (Resetting personal attendance numbers to zero)
                     if copy_subjects:
                         admin_sem_data = load_data_from_db(user_email)
                         my_subjects = admin_sem_data.get(target_sem, [])
@@ -1291,7 +1316,6 @@ if is_admin and admin_mode:
                         else:
                             st.warning(f"You have no subjects saved in your own {target_sem} to share.")
 
-                    # 2. Copy Timetable Entries
                     if copy_timetable:
                         my_tt = load_timetable_from_db(user_email, target_sem)
                         if my_tt:
@@ -1309,7 +1333,6 @@ if is_admin and admin_mode:
                         else:
                             st.warning(f"You have no timetable slots saved in your own {target_sem} to share.")
 
-                    # 3. Copy Exam Schedules
                     if copy_exams:
                         my_exams = load_exams_from_db(user_email, target_sem)
                         if my_exams:
@@ -1755,67 +1778,195 @@ elif current_page == "Assignments":
             st.info("No assignments recorded for this semester.")
 
 # ---------------------------------------------------------
-# EXAMS & TIMETABLE PAGE
+# EXAMS & TIMETABLE PAGE (WITH HOLIDAY MANAGER & ATTENDANCE FEASIBILITY)
 # ---------------------------------------------------------
 elif current_page == "Exams":
     render_back_button()
-    st.title(f"📅 Examination Schedule ({selected_semester})")
-    
-    if not current_subjects:
-        st.info("ℹ️ Please add subjects in the Attendance manager first.")
-    else:
-        subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
+    st.title(f"📅 Examination Schedule, Holidays & Feasibility Planner ({selected_semester})")
+
+    exam_tab1, exam_tab2, exam_tab3 = st.tabs(["📅 Exams", "🏖️ Holiday Manager", "⚡ Attendance Feasibility Projection"])
+
+    with exam_tab1:
+        if not current_subjects:
+            st.info("ℹ️ Please add subjects in the Attendance manager first.")
+        else:
+            subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
+            
+            with st.expander("➕ Log New Exam Date & Syllabus", expanded=True):
+                with st.form("add_exam_form", clear_on_submit=True):
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        sel_sub_exam = st.selectbox("Select Subject", options=subject_options, key="exam_sub_sel")
+                        exam_type = st.selectbox("Exam Type", options=["Mid-Term Examination", "End-Term Examination", "Quiz / Test"])
+                    with col_e2:
+                        exam_date_val = st.date_input("Exam Date", value=date.today() + timedelta(days=14))
+                        exam_time_val = st.time_input("Exam Start Time", value=datetime.strptime("10:00", "%H:%M").time())
+                    
+                    exam_syllabus = st.text_area("Syllabus Outline", placeholder="e.g. Units 1 to 3")
+                    submit_exam = st.form_submit_button("Save Exam Schedule", type="primary")
+                    
+                    if submit_exam:
+                        sub_code = sel_sub_exam.split("]")[0].replace("[", "")
+                        combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
+                        save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
+                        st.success(f"Scheduled {exam_type}!")
+                        st.rerun()
+
+            st.markdown("---")
+            exams = load_exams_from_db(user_email, selected_semester)
+            if exams:
+                exam_rows = []
+                for ex in exams:
+                    dt_obj = datetime.fromisoformat(ex["exam_date"])
+                    if dt_obj.tzinfo is not None:
+                        dt_obj = dt_obj.astimezone(IST)
+                    exam_rows.append({
+                        "Subject Code": ex["subject_code"],
+                        "Exam Type": ex["exam_type"],
+                        "Date": dt_obj.strftime("%Y-%m-%d"),
+                        "Time": dt_obj.strftime("%I:%M %p"),
+                    })
+                st.dataframe(pd.DataFrame(exam_rows).sort_values("Date"), use_container_width=True)
+                
+                for ex in exams:
+                    dt_obj = datetime.fromisoformat(ex["exam_date"])
+                    if dt_obj.tzinfo is not None:
+                        dt_obj = dt_obj.astimezone(IST)
+                    with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
+                        st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
+                        if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
+                            supabase.table("student_exams").delete().eq("id", ex['id']).execute()
+                            st.rerun()
+            else:
+                st.info("No exam schedules logged.")
+
+    with exam_tab2:
+        st.subheader("🏖️ Holiday Manager")
+        st.markdown("Add specific college holidays, festival breaks, or study leaves. **Note:** All Sundays and **2nd & 4th Saturdays** are automatically counted as holidays.")
         
-        with st.expander("➕ Log New Exam Date & Syllabus", expanded=True):
-            with st.form("add_exam_form", clear_on_submit=True):
-                col_e1, col_e2 = st.columns(2)
-                with col_e1:
-                    sel_sub_exam = st.selectbox("Select Subject", options=subject_options, key="exam_sub_sel")
-                    exam_type = st.selectbox("Exam Type", options=["Mid-Term Examination", "End-Term Examination", "Quiz / Test"])
-                with col_e2:
-                    exam_date_val = st.date_input("Exam Date", value=date.today() + timedelta(days=14))
-                    exam_time_val = st.time_input("Exam Start Time", value=datetime.strptime("10:00", "%H:%M").time())
-                
-                exam_syllabus = st.text_area("Syllabus Outline", placeholder="e.g. Units 1 to 3")
-                submit_exam = st.form_submit_button("Save Exam Schedule", type="primary")
-                
-                if submit_exam:
-                    sub_code = sel_sub_exam.split("]")[0].replace("[", "")
-                    combined_dt = datetime.combine(exam_date_val, exam_time_val).replace(tzinfo=IST)
-                    save_exam_to_db(user_email, selected_semester, sub_code, exam_type, combined_dt.isoformat(), exam_syllabus.strip())
-                    st.success(f"Scheduled {exam_type}!")
+        with st.form("add_holiday_form", clear_on_submit=True):
+            col_h1, col_h2 = st.columns(2)
+            with col_h1:
+                h_date = st.date_input("Holiday Date", value=date.today())
+            with col_h2:
+                h_reason = st.text_input("Holiday Reason / Title", placeholder="e.g. Diwali Break / College Fest")
+            
+            sub_holiday = st.form_submit_button("Save Holiday", type="primary")
+            if sub_holiday:
+                if not h_reason.strip():
+                    st.error("Please enter a holiday reason.")
+                else:
+                    save_holiday_to_db(user_email, selected_semester, str(h_date), h_reason.strip())
+                    st.success(f"Added holiday for {h_date}!")
                     st.rerun()
 
         st.markdown("---")
-        exams = load_exams_from_db(user_email, selected_semester)
-        if exams:
-            exam_rows = []
-            for ex in exams:
-                dt_obj = datetime.fromisoformat(ex["exam_date"])
-                if dt_obj.tzinfo is not None:
-                    dt_obj = dt_obj.astimezone(IST)
-                exam_rows.append({
-                    "Subject Code": ex["subject_code"],
-                    "Exam Type": ex["exam_type"],
-                    "Date": dt_obj.strftime("%Y-%m-%d"),
-                    "Time": dt_obj.strftime("%I:%M %p"),
-                })
-            st.dataframe(pd.DataFrame(exam_rows).sort_values("Date"), use_container_width=True)
-            
-            for ex in exams:
-                dt_obj = datetime.fromisoformat(ex["exam_date"])
-                if dt_obj.tzinfo is not None:
-                    dt_obj = dt_obj.astimezone(IST)
-                with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
-                    st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
-                    if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
-                        supabase.table("student_exams").delete().eq("id", ex['id']).execute()
-                        st.rerun()
+        st.subheader("📋 Registered Custom Holidays")
+        saved_holidays = load_holidays_from_db(user_email, selected_semester)
+        if saved_holidays:
+            for hol in saved_holidays:
+                col_h_info1, col_h_info2 = st.columns([3, 1])
+                with col_h_info1:
+                    st.markdown(f"📅 **{hol['holiday_date']}** — {hol['reason']}")
+                with col_h_info2:
+                    if st.button("🗑️ Delete", key=f"del_hol_{hol.get('id', hol['holiday_date'])}"):
+                        try:
+                            supabase.table("student_holidays").delete().eq("id", hol['id']).execute()
+                            st.rerun()
+                        except Exception:
+                            pass
+                st.divider()
         else:
-            st.info("No exam schedules logged.")
+            st.info("No custom holidays recorded for this semester.")
+
+    with exam_tab3:
+        st.subheader("⚡ Exam Countdown & Attendance Feasibility Projection")
+        st.markdown("Calculates the exact number of class periods remaining until your first exam (excluding Sundays, 2nd & 4th Saturdays, and custom holidays) to determine if you can mathematically reach your target attendance quota.")
+
+        exams_list = load_exams_from_db(user_email, selected_semester)
+        if not exams_list:
+            st.warning("⚠️ Please log at least one exam date in the **Exams** tab first so the app knows your exam start date.")
+        elif not current_subjects:
+            st.warning("⚠️ Please add subjects in the Attendance manager first.")
+        else:
+            # Find earliest exam date
+            exam_dates = []
+            for ex in exams_list:
+                dt_obj = datetime.fromisoformat(ex["exam_date"])
+                if dt_obj.tzinfo is not None:
+                    dt_obj = dt_obj.astimezone(IST)
+                exam_dates.append(dt_obj.date())
+            
+            first_exam_date = min(exam_dates)
+            today_date = date.today()
+            days_left_to_exam = (first_exam_date - today_date).days
+
+            if days_left_to_exam <= 0:
+                st.error(f"⚠️ The first exam date ({first_exam_date}) has already passed or is today!")
+            else:
+                st.info(f"⏳ **Countdown:** {days_left_to_exam} calendar day(s) until your first exam on **{first_exam_date}** (Target Attendance: `{default_target}%`).")
+
+                # Calculate remaining working days and periods per subject
+                custom_holidays_data = load_holidays_from_db(user_email, selected_semester)
+                holiday_set = {h["holiday_date"] for h in custom_holidays_data}
+                timetable_slots = load_timetable_from_db(user_email, selected_semester)
+
+                # Map day name to list of subject codes
+                schedule_map = {}
+                for slot in timetable_slots:
+                    dname = slot["day_of_week"]
+                    schedule_map.setdefault(dname, []).append(slot["subject_code"])
+
+                remaining_periods_per_subject = {s["code"]: 0 for s in current_subjects}
+                working_days_count = 0
+
+                curr = today_date + timedelta(days=1)
+                while curr < first_exam_date:
+                    is_sunday = (curr.weekday() == 6)
+                    is_2nd_4th_sat = is_second_or_fourth_saturday(curr)
+                    is_custom_holiday = (str(curr) in holiday_set)
+
+                    if not is_sunday and not is_2nd_4th_sat and not is_custom_holiday:
+                        working_days_count += 1
+                        day_name = curr.strftime("%A")
+                        day_subjects = schedule_map.get(day_name, [])
+                        for scode in day_subjects:
+                            if scode in remaining_periods_per_subject:
+                                remaining_periods_per_subject[scode] += 1
+                    curr += timedelta(days=1)
+
+                st.markdown(f"🏫 **Working Days Count:** {working_days_count} working day(s) found between today and your exams.")
+
+                feasibility_data = []
+                for subj in current_subjects:
+                    code = subj["code"]
+                    attended = subj["attended"]
+                    conducted = subj["conducted"]
+                    rem_classes = remaining_periods_per_subject.get(code, 0)
+                    
+                    curr_pct = (attended / conducted * 100) if conducted > 0 else 0.0
+                    proj_attended = attended + rem_classes
+                    proj_conducted = conducted + rem_classes
+                    proj_pct = (proj_attended / proj_conducted * 100) if proj_conducted > 0 else 0.0
+
+                    if proj_pct >= default_target:
+                        status_msg = f"✅ Feasible (Will reach {proj_pct:.1f}% if 100% attended)"
+                    else:
+                        status_msg = f"❌ At Risk (Max possible: {proj_pct:.1f}% < {default_target}%)"
+
+                    feasibility_data.append({
+                        "Code": code,
+                        "Subject": subj["name"],
+                        "Current Attendance": f"{curr_pct:.1f}% ({attended}/{conducted})",
+                        "Remaining Classes": rem_classes,
+                        "Max Projected %": f"{proj_pct:.1f}%",
+                        "Feasibility Status": status_msg
+                    })
+
+                st.dataframe(pd.DataFrame(feasibility_data), use_container_width=True)
 
 # ---------------------------------------------------------
-# DAILY SCHEDULE PAGE
+# DAILY SCHEDULE PAGE (WITH MULTI-DAY TIMETABLE VIEWER)
 # ---------------------------------------------------------
 elif current_page == "Schedule":
     render_back_button()
@@ -1847,13 +1998,22 @@ elif current_page == "Schedule":
 
         st.markdown("---")
         current_day_name = get_ist_time().strftime("%A")
-        st.subheader(f"📅 Today's Schedule ({current_day_name})")
+        st.subheader("📅 Timetable Viewer by Day")
+        
+        days_list = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        default_index = days_list.index(current_day_name) if current_day_name in days_list else 0
+        
+        selected_day_view = st.selectbox(
+            "Select Day to View Timetable",
+            options=days_list,
+            index=default_index
+        )
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        today_entries = [t for t in all_timetable_entries if t.get("day_of_week") == current_day_name]
+        day_entries = [t for t in all_timetable_entries if t.get("day_of_week") == selected_day_view]
         
-        if today_entries:
-            for entry in today_entries:
+        if day_entries:
+            for entry in day_entries:
                 with st.container():
                     col_c1, col_c2, col_c3 = st.columns([2, 3, 1])
                     with col_c1:
@@ -1861,12 +2021,12 @@ elif current_page == "Schedule":
                     with col_c2:
                         st.markdown(f"📚 **[{entry['subject_code']}]** | Room: `{entry['room_number']}`")
                     with col_c3:
-                        if st.button("🗑️ Remove", key=f"del_tt_{entry['id']}"):
+                        if st.button("🗑️ Remove", key=f"del_tt_{entry['id']}_{selected_day_view}"):
                             supabase.table("student_timetables").delete().eq("id", entry['id']).execute()
                             st.rerun()
                     st.divider()
         else:
-            st.info(f"🎉 No classes scheduled for today ({current_day_name})!")
+            st.info(f"🎉 No classes scheduled for {selected_day_view}!")
 
 # ---------------------------------------------------------
 # NOTES & STUDY MATERIAL PAGE
