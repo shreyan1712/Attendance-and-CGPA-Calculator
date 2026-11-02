@@ -1976,15 +1976,28 @@ elif current_page == "Exams":
 
         if holiday_entries_list:
             for hol in holiday_entries_list:
-                col_h_info1, col_h_info2 = st.columns([3, 1])
-                with col_h_info1:
-                    st.markdown(f"📅 **{hol['date_str']} ({hol['day_name']})** — {hol['reason']} | `{hol['type']}`")
-                with col_h_info2:
-                    if hol["id"]:
-                        if st.button("🗑️ Delete Custom", key=f"del_hol_{hol['id']}"):
-                            supabase.table("student_holidays").delete().eq("id", hol['id']).execute()
-                            st.rerun()
-                st.divider()
+                with st.container():
+                    col_h_info1, col_h_info2 = st.columns([5, 1])
+                    with col_h_info1:
+                        badge_bg = "linear-gradient(135deg, rgba(160, 0, 55, 0.85), rgba(217, 4, 41, 0.85))" if hol["type"] == "Custom Holiday" else "rgba(48, 54, 61, 0.85)"
+                        st.markdown(
+                            f"""
+                            <div style="background: rgba(22, 27, 34, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 16px rgba(0,0,0,0.3); margin-bottom: 8px;">
+                                <div>
+                                    <span style="font-weight: 700; color: #ffffff; font-size: 1.05rem;">📅 {hol['date_str']}</span>
+                                    <span style="color: #8b949e; font-weight: 500; margin-left: 6px;">({hol['day_name']})</span>
+                                    <span style="color: #c9d1d9; margin-left: 12px; font-weight: 500;">— {hol['reason']}</span>
+                                </div>
+                                <span style="background: {badge_bg}; color: #ffffff; padding: 4px 10px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; border: 1px solid rgba(255,255,255,0.15);">{hol['type']}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    with col_h_info2:
+                        if hol["id"]:
+                            if st.button("🗑️ Delete", key=f"del_hol_{hol['id']}"):
+                                supabase.table("student_holidays").delete().eq("id", hol['id']).execute()
+                                st.rerun()
         else:
             st.info("No upcoming holidays found.")
 
@@ -2033,7 +2046,7 @@ elif current_page == "Schedule":
         )
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        day_entries = [t for t in all_timetable_entries if t.get("day_of_week") == selected_day_view]
+        day_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == selected_day_view]
         
         if day_entries:
             for entry in day_entries:
