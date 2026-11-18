@@ -1843,7 +1843,13 @@ elif current_page == "Assignments":
                     due_date_val = st.date_input("Due Date", value=date.today() + timedelta(days=7))
                     due_time_val = st.time_input("Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                assignment_link = st.text_input("Assignment Link or File Path (Optional)")
+                # Added Submission Link and File Upload options side-by-side
+                col_sub_opt1, col_sub_opt2 = st.columns(2)
+                with col_sub_opt1:
+                    assignment_link = st.text_input("Submission Link (Optional)", placeholder="https://github.com/... or URL")
+                with col_sub_opt2:
+                    uploaded_assignment_file = st.file_uploader("Upload Assignment File (Optional)", type=["pdf", "docx", "txt", "zip", "png", "jpg"])
+
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
                 if submit_asgn:
@@ -1852,8 +1858,22 @@ elif current_page == "Assignments":
                     else:
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
-                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), assignment_link.strip() if assignment_link else None)
-                        st.success(f"Added assignment '{asgn_title}'!")
+                        
+                        final_assignment_url = None
+                        if uploaded_assignment_file is not None:
+                            try:
+                                file_bytes = uploaded_assignment_file.read()
+                                ext = uploaded_assignment_file.name.split(".")[-1]
+                                file_path = f"assignments/{selected_semester}/{user_email}_{int(datetime.now().timestamp())}.{ext}"
+                                supabase.storage.from_("study_materials").upload(file_path, file_bytes)
+                                final_assignment_url = supabase.storage.from_("study_materials").get_public_url(file_path)
+                            except Exception as storage_err:
+                                st.error(f"File upload error: {storage_err}")
+                        elif assignment_link.strip():
+                            final_assignment_url = assignment_link.strip()
+
+                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), final_assignment_url)
+                        st.success(f"Added assignment '{asgn_title}' successfully!")
                         st.rerun()
 
         st.markdown("---")
@@ -1888,7 +1908,7 @@ elif current_page == "Assignments":
                         st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
                         if f_url:
                             if f_url.startswith("http://") or f_url.startswith("https://"):
-                                st.markdown(f"🔗 [Open Link]({f_url})")
+                                st.markdown(f"🔗 [Open / Download Submitted File/Link]({f_url})")
                             else:
                                 st.code(f_url, language=None)
                     with col_b2:
@@ -2097,7 +2117,7 @@ elif current_page == "Schedule":
         )
         
         all_timetable_entries = load_timetable_from_db(user_email, selected_semester)
-        day_entries = [t for t in all_timetable_entries if t.get("day_of_week") == selected_day_view]
+        day_entries = [t for t in all_timetable_entries if t.get("day_of_week"] == selected_day_view]
         
         if day_entries:
             for entry in day_entries:
