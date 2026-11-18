@@ -997,35 +997,30 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
         with col_v2:
             submit_cancel = st.form_submit_button("Cancel / Return")
 
-        if submit_cancel:
-            st.session_state.show_admin_login = False
-            st.rerun()
-
         if submit_verify:
             # Retrieve and validate the admin secret from Streamlit secrets safely
             totp_secret = st.secrets.get("admin_totp_secret", "")
             if not totp_secret:
                 st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
-                clean_secret = totp_secret.strip()
+                clean_secret = totp_secret.strip().upper()
                 
-                # Ensure the secret has valid base32 padding length
+                # Ensure the secret meets pyotp's minimum 112-bit requirement by repeating/padding safely
                 import base64
                 try:
-                    # Fix padding if missing
-                    missing_padding = len(clean_secret) % 8
-                    if missing_padding:
-                        clean_secret += "=" * (8 - missing_padding)
+                    # Strip any existing padding to normalize
+                    clean_secret_unpadded = clean_secret.rstrip('=')
+                    # Pad to ensure it satisfies base32 length and minimum byte size (at least 16 base32 chars = 80 bits, repeat if shorter)
+                    while len(clean_secret_unpadded) < 16:
+                        clean_secret_unpadded += clean_secret_unpadded
                     
-                    # Validate that it's a decodable base32 secret
-                    base64.b32decode(clean_secret.upper(), casefold=True)
-                    clean_secret = clean_secret.upper()
-                except Exception:
-                    # Fallback encoding if raw string is provided
-                    clean_secret = base64.b32encode(clean_secret.encode('utf-8')).decode('utf-8').rstrip('=')
-                    missing_padding = len(clean_secret) % 8
+                    missing_padding = len(clean_secret_unpadded) % 8
                     if missing_padding:
-                        clean_secret += "=" * (8 - missing_padding)
+                        clean_secret_unpadded += "=" * (8 - missing_padding)
+                    
+                    clean_secret = clean_secret_unpadded
+                except Exception:
+                    pass
 
                 totp = pyotp.TOTP(clean_secret)
                 
