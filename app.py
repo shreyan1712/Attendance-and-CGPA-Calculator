@@ -1002,7 +1002,8 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
             st.rerun()
 
         if submit_verify:
-            totp_secret = st.secrets.get("admin_totp_secret", "")
+            # Retrieve and validate the admin secret from Streamlit secrets safely
+        totp_secret = st.secrets.get("admin_totp_secret", "")
         if not totp_secret:
             st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
         else:
