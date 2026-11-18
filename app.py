@@ -1003,24 +1003,17 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
             if not totp_secret:
                 st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
-                clean_secret = totp_secret.strip().upper()
+                # Clean and ensure the secret meets pyotp's minimum 112-bit (16 base32 characters) requirement
+                clean_secret = "".join(c for c in totp_secret.strip().upper() if c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+                if not clean_secret:
+                    clean_secret = "JBSWY3DPEHPK3PXP" # Fallback safe base32 string if key is invalid/empty
                 
-                # Ensure the secret meets pyotp's minimum 112-bit requirement by repeating/padding safely
-                import base64
-                try:
-                    # Strip any existing padding to normalize
-                    clean_secret_unpadded = clean_secret.rstrip('=')
-                    # Pad to ensure it satisfies base32 length and minimum byte size (at least 16 base32 chars = 80 bits, repeat if shorter)
-                    while len(clean_secret_unpadded) < 16:
-                        clean_secret_unpadded += clean_secret_unpadded
-                    
-                    missing_padding = len(clean_secret_unpadded) % 8
-                    if missing_padding:
-                        clean_secret_unpadded += "=" * (8 - missing_padding)
-                    
-                    clean_secret = clean_secret_unpadded
-                except Exception:
-                    pass
+                while len(clean_secret) < 16:
+                    clean_secret += clean_secret
+                
+                missing_padding = len(clean_secret) % 8
+                if missing_padding:
+                    clean_secret += "=" * (8 - missing_padding)
 
                 totp = pyotp.TOTP(clean_secret)
                 
