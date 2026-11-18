@@ -1008,9 +1008,25 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
                 st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
                 clean_secret = totp_secret.strip()
-                while len(clean_secret) * 5 < 112:
-                    clean_secret += clean_secret
                 
+                # Ensure the secret has valid base32 padding length
+                import base64
+                try:
+                    # Fix padding if missing
+                    missing_padding = len(clean_secret) % 8
+                    if missing_padding:
+                        clean_secret += "=" * (8 - missing_padding)
+                    
+                    # Validate that it's a decodable base32 secret
+                    base64.b32decode(clean_secret.upper(), casefold=True)
+                    clean_secret = clean_secret.upper()
+                except Exception:
+                    # Fallback encoding if raw string is provided
+                    clean_secret = base64.b32encode(clean_secret.encode('utf-8')).decode('utf-8').rstrip('=')
+                    missing_padding = len(clean_secret) % 8
+                    if missing_padding:
+                        clean_secret += "=" * (8 - missing_padding)
+
                 totp = pyotp.TOTP(clean_secret)
                 
                 # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
