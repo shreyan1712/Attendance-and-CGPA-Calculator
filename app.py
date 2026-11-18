@@ -1006,13 +1006,14 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
         if not totp_secret:
             st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
         else:
-            # Ensure the secret meets pyotp's 112-bit requirement by repeating or padding cleanly
             clean_secret = totp_secret.strip()
             while len(clean_secret) * 5 < 112:
                 clean_secret += clean_secret
             
             totp = pyotp.TOTP(clean_secret)
-            if totp.verify(totp_input.strip()):
+            
+            # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
+            if totp.verify(totp_input.strip(), valid_window=1):
                 st.session_state.admin_unlocked = True
                 st.session_state.show_admin_login = False
                 st.session_state.admin_active_tab = True
