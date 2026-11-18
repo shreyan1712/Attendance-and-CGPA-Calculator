@@ -1006,7 +1006,9 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
             if not totp_secret:
                 st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
-                totp = pyotp.TOTP(totp_secret)
+                # Pad secret to safely satisfy pyotp 112-bit (20 character) security requirement
+                padded_secret = totp_secret.ljust(20, '2')
+                totp = pyotp.TOTP(padded_secret)
                 if totp.verify(totp_input.strip()):
                     st.session_state.admin_unlocked = True
                     st.session_state.show_admin_login = False
@@ -1131,6 +1133,7 @@ if is_admin and admin_mode:
                     "study_materials": supabase.table("study_materials").select("*").execute().data,
                     "study_material_permissions": supabase.table("study_material_permissions").select("*").execute().data,
                     "admin_messages": supabase.table("admin_messages").select("*").execute().data,
+                    "system_settings": supabase.table("system_settings").select("*").execute().data,
                 }
                 
                 json_string = json.dumps(backup_data, indent=4, default=str)
@@ -1887,7 +1890,6 @@ elif current_page == "Assignments":
         assignments = load_assignments_from_db(user_email, selected_semester)
         
         if assignments:
-            # Group assignments by subject code
             assignments_by_subject = {}
             for asg in assignments:
                 scode = asg["subject_code"]
@@ -1928,7 +1930,6 @@ elif current_page == "Assignments":
                                     st.markdown(f"**{title}** ({status_badge})")
                                     st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
                                     
-                                    # Two separate clean buttons for See Assignment and Submit Assignment
                                     col_btn_a, col_btn_b = st.columns(2)
                                     with col_btn_a:
                                         if f_url:
