@@ -1003,21 +1003,24 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
 
         if submit_verify:
             totp_secret = st.secrets.get("admin_totp_secret", "")
-            if not totp_secret:
-                st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
+        if not totp_secret:
+            st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
+        else:
+            # Ensure the secret meets pyotp's 112-bit requirement by repeating or padding cleanly
+            clean_secret = totp_secret.strip()
+            while len(clean_secret) * 5 < 112:
+                clean_secret += clean_secret
+            
+            totp = pyotp.TOTP(clean_secret)
+            if totp.verify(totp_input.strip()):
+                st.session_state.admin_unlocked = True
+                st.session_state.show_admin_login = False
+                st.session_state.admin_active_tab = True
+                st.session_state.admin_page = "AdminHome"
+                st.success("Authentication successful! Unlocking admin dashboard...")
+                st.rerun()
             else:
-                # Pad secret to safely satisfy pyotp 112-bit (20 character) security requirement
-                padded_secret = totp_secret.ljust(20, '2')
-                totp = pyotp.TOTP(padded_secret)
-                if totp.verify(totp_input.strip()):
-                    st.session_state.admin_unlocked = True
-                    st.session_state.show_admin_login = False
-                    st.session_state.admin_active_tab = True
-                    st.session_state.admin_page = "AdminHome"
-                    st.success("Authentication successful! Unlocking admin dashboard...")
-                    st.rerun()
-                else:
-                    st.error("❌ Invalid Authenticator code. Please try again.")
+                st.error("❌ Invalid Authenticator code. Please try again.")
     st.stop()
 
 # ---------------------------------------------------------
