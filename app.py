@@ -1003,26 +1003,26 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
 
         if submit_verify:
             # Retrieve and validate the admin secret from Streamlit secrets safely
-        totp_secret = st.secrets.get("admin_totp_secret", "")
-        if not totp_secret:
-            st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
-        else:
-            clean_secret = totp_secret.strip()
-            while len(clean_secret) * 5 < 112:
-                clean_secret += clean_secret
-            
-            totp = pyotp.TOTP(clean_secret)
-            
-            # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
-            if totp.verify(totp_input.strip(), valid_window=1):
-                st.session_state.admin_unlocked = True
-                st.session_state.show_admin_login = False
-                st.session_state.admin_active_tab = True
-                st.session_state.admin_page = "AdminHome"
-                st.success("Authentication successful! Unlocking admin dashboard...")
-                st.rerun()
+            totp_secret = st.secrets.get("admin_totp_secret", "")
+            if not totp_secret:
+                st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
-                st.error("❌ Invalid Authenticator code. Please try again.")
+                clean_secret = totp_secret.strip()
+                while len(clean_secret) * 5 < 112:
+                    clean_secret += clean_secret
+                
+                totp = pyotp.TOTP(clean_secret)
+                
+                # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
+                if totp.verify(totp_input.strip(), valid_window=1):
+                    st.session_state.admin_unlocked = True
+                    st.session_state.show_admin_login = False
+                    st.session_state.admin_active_tab = True
+                    st.session_state.admin_page = "AdminHome"
+                    st.success("Authentication successful! Unlocking admin dashboard...")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid Authenticator code. Please try again.")
     st.stop()
 
 # ---------------------------------------------------------
