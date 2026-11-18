@@ -778,7 +778,7 @@ def load_assignments_from_db(email, semester):
         return []
 
 
-def save_assignment_to_db(email, semester, subject_code, title, due_date_str, file_url=None):
+def save_assignment_to_db(email, semester, subject_code, title, due_date_str, file_url=None, submission_link=None):
     try:
         supabase.table("student_assignments").insert({
             "user_email": email,
@@ -786,10 +786,22 @@ def save_assignment_to_db(email, semester, subject_code, title, due_date_str, fi
             "subject_code": subject_code,
             "title": title,
             "due_date": due_date_str,
-            "file_url": file_url
+            "file_url": file_url,
+            "submission_link": submission_link
         }).execute()
     except Exception as e:
-        st.error(f"Error saving assignment: {e}")
+        # Fallback if submission_link column doesn't exist yet in Supabase table
+        try:
+            supabase.table("student_assignments").insert({
+                "user_email": email,
+                "semester": semester,
+                "subject_code": subject_code,
+                "title": title,
+                "due_date": due_date_str,
+                "file_url": file_url
+            }).execute()
+        except Exception as err:
+            st.error(f"Error saving assignment: {err}")
 
 
 def load_exams_from_db(email, semester):
@@ -1843,12 +1855,12 @@ elif current_page == "Assignments":
                     due_date_val = st.date_input("Due Date", value=date.today() + timedelta(days=7))
                     due_time_val = st.time_input("Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                # Added Submission Link and File Upload options side-by-side
+                # Separate input fields for Submission Link and File Upload
                 col_sub_opt1, col_sub_opt2 = st.columns(2)
                 with col_sub_opt1:
-                    assignment_link = st.text_input("Submission Link (Optional)", placeholder="https://github.com/... or URL")
+                    submission_link_input = st.text_input("🔗 Submission Link", placeholder="https://... (URL to submit)")
                 with col_sub_opt2:
-                    uploaded_assignment_file = st.file_uploader("Upload Assignment File (Optional)", type=["pdf", "docx", "txt", "zip", "png", "jpg"])
+                    uploaded_assignment_file = st.file_uploader("📁 Upload Assignment File", type=["pdf", "docx", "txt", "zip", "png", "jpg"])
 
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
@@ -1859,20 +1871,20 @@ elif current_page == "Assignments":
                         sub_code = sel_sub_str.split("]")[0].replace("[", "")
                         combined_dt = datetime.combine(due_date_val, due_time_val).replace(tzinfo=IST)
                         
-                        final_assignment_url = None
+                        final_file_url = None
                         if uploaded_assignment_file is not None:
                             try:
                                 file_bytes = uploaded_assignment_file.read()
                                 ext = uploaded_assignment_file.name.split(".")[-1]
                                 file_path = f"assignments/{selected_semester}/{user_email}_{int(datetime.now().timestamp())}.{ext}"
                                 supabase.storage.from_("study_materials").upload(file_path, file_bytes)
-                                final_assignment_url = supabase.storage.from_("study_materials").get_public_url(file_path)
+                                final_file_url = supabase.storage.from_("study_materials").get_public_url(file_path)
                             except Exception as storage_err:
                                 st.error(f"File upload error: {storage_err}")
-                        elif assignment_link.strip():
-                            final_assignment_url = assignment_link.strip()
 
-                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), final_assignment_url)
+                        final_sub_link = submission_link_input.strip() if submission_link_input else None
+
+                        save_assignment_to_db(user_email, selected_semester, sub_code, asgn_title.strip(), combined_dt.isoformat(), final_file_url, final_sub_link)
                         st.success(f"Added assignment '{asgn_title}' successfully!")
                         st.rerun()
 
@@ -1886,6 +1898,7 @@ elif current_page == "Assignments":
                 title = asg["title"]
                 due_str = asg["due_date"]
                 f_url = asg.get("file_url")
+                sub_link = asg.get("submission_link")
                 
                 due_dt = datetime.fromisoformat(due_str)
                 if due_dt.tzinfo is not None:
@@ -1906,11 +1919,15 @@ elif current_page == "Assignments":
                     col_b1, col_b2, col_b3 = st.columns([3, 2, 1])
                     with col_b1:
                         st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
-                        if f_url:
-                            if f_url.startswith("http://") or f_url.startswith("https://"):
-                                st.markdown(f"🔗 [Open / Download Submitted File/Link]({f_url})")
-                            else:
-                                st.code(f_url, language=None)
+                        
+                        # Clean clickable action buttons for uploaded file and submission link
+                        col_link_btn1, col_link_btn2 = st.columns(2)
+                        with col_link_btn1:
+                            if f_url:
+                                st.link_button("📄 Open/Download File", f_url, use_container_width=True)
+                        with col_link_btn2:
+                            if sub_link:
+                                st.link_button("🌐 Submission Link", sub_link, use_container_width=True)
                     with col_b2:
                         st.markdown(timer_str)
                         st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
