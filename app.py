@@ -6,10 +6,17 @@ import io
 import json
 import math
 import random
+import secrets
+import struct
+import time
 import zipfile
+from urllib.parse import unquote
 import pandas as pd
 import plotly.express as px
-import pyotp
+try:
+    import pyotp  # no longer required for admin login (see verify_totp_code), kept for compatibility
+except Exception:
+    pyotp = None
 import requests
 import streamlit as st
 from supabase import create_client
@@ -57,6 +64,87 @@ def parse_db_time(iso_str):
             return dt.replace(tzinfo=timezone.utc)
     except Exception:
         return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------
+# SECURITY / DATA HELPERS (admin email match, paged fetch, TOTP)
+# ---------------------------------------------------------
+STORAGE_BUCKET_NAME = "study_materials"
+
+
+def admin_email_matches(email, admin_email):
+    """Case-insensitive, whitespace-tolerant comparison against the admin_email secret."""
+    if not admin_email or not email:
+        return False
+    return str(email).strip().lower() == str(admin_email).strip().lower()
+
+
+def fetch_all_rows(table_name, columns="*", order_by=None, page_size=1000):
+    """Fetch EVERY row of a table.
+    Supabase returns at most 1000 rows per request, so a plain .select('*') silently
+    truncates big tables. This pages through the table with .range() until all rows are read."""
+    all_rows = []
+    start = 0
+    while True:
+        query = supabase.table(table_name).select(columns)
+        if order_by:
+            query = query.order(order_by)
+        resp = query.range(start, start + page_size - 1).execute()
+        batch = resp.data if resp.data else []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+
+def storage_path_from_url(file_url):
+    """Return the object path inside the study_materials bucket for a Supabase public URL,
+    or None when the URL is an external link."""
+    marker = f"/storage/v1/object/public/{STORAGE_BUCKET_NAME}/"
+    if file_url and marker in file_url:
+        return unquote(file_url.split(marker, 1)[1].split("?")[0])
+    return None
+
+
+def normalize_totp_secret(raw_secret):
+    """Clean the admin_totp_secret into padded Base32 (same normalisation the app always used).
+    Returns None if the secret has no usable Base32 characters."""
+    clean = "".join(c for c in str(raw_secret).strip().upper() if c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+    if not clean:
+        return None
+    while len(clean) < 16:
+        clean += clean
+    missing_padding = len(clean) % 8
+    if missing_padding:
+        clean += "=" * (8 - missing_padding)
+    return clean
+
+
+def verify_totp_code(secret_b32, code, window=1, interval=30, digits=6):
+    """Standard RFC 6238 TOTP check (HMAC-SHA1, 30s step, 6 digits) - compatible with
+    Google Authenticator. Implemented with the standard library because newer pyotp versions
+    refuse the classic 16-character (80-bit) secrets with
+    'Secrets must be at least 112 bits after decoding'.
+    Returns True (valid), False (wrong code) or None (secret is not valid Base32)."""
+    try:
+        key = base64.b32decode(secret_b32, casefold=True)
+    except Exception:
+        return None
+    code = str(code).strip()
+    if not (code.isdigit() and len(code) == digits):
+        return False
+    current_counter = int(time.time() // interval)
+    for offset in range(-window, window + 1):
+        counter = current_counter + offset
+        if counter < 0:
+            continue
+        digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+        o = digest[-1] & 0x0F
+        value = (struct.unpack(">I", digest[o:o + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
+        if hmac.compare_digest(str(value).zfill(digits).encode(), code.encode()):
+            return True
+    return False
 
 
 # Helper function to send OTP & Emails via API
@@ -440,7 +528,7 @@ if not st.session_state.authenticated:
                             res = supabase.table("users").select("*").eq("username", m_user.strip()).execute()
                         if res.data:
                             u_rec = res.data[0]
-                            if u_rec["email"] == admin_email_secret and u_rec["password_hash"] == hash_password(m_pass):
+                            if admin_email_matches(u_rec["email"], admin_email_secret) and u_rec["password_hash"] == hash_password(m_pass):
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = u_rec["email"]
                                 st.session_state.user_name = u_rec["name"]
@@ -545,7 +633,7 @@ if not st.session_state.authenticated:
                                 hashed_input = hash_password(login_pass)
                                 if db_user["password_hash"] == hashed_input:
                                     admin_email_secret = st.secrets.get("admin_email", "")
-                                    if is_maintenance and db_user["email"] != admin_email_secret:
+                                    if is_maintenance and not admin_email_matches(db_user["email"], admin_email_secret):
                                         st.error("🚧 SITE IS UNDER MAINTENANCE. Regular logins are currently disabled.")
                                     else:
                                         st.session_state.authenticated = True
@@ -615,7 +703,7 @@ if not st.session_state.authenticated:
                                     db_user = response.data[0]
                                     user_email_db = db_user["email"]
                                     
-                                    otp = str(random.randint(100000, 999999))
+                                    otp = str(secrets.randbelow(900000) + 100000)
                                     expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
                                     
                                     supabase.table("users").update({
@@ -671,7 +759,7 @@ if not st.session_state.authenticated:
                                     now = datetime.now(timezone.utc)
                                     expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
 
-                                    if entered_otp.strip() != str(db_otp):
+                                    if not db_otp or not hmac.compare_digest(entered_otp.strip().encode(), str(db_otp).encode()):
                                         st.error("Invalid OTP code.")
                                     elif now > expiry_time:
                                         st.error("OTP has expired.")
@@ -698,7 +786,7 @@ user_email = st.session_state.user_email
 user_name = st.session_state.user_name
 
 admin_email_secret = st.secrets.get("admin_email", "")
-is_admin = admin_email_secret and user_email == admin_email_secret
+is_admin = admin_email_matches(user_email, admin_email_secret)
 
 if is_maintenance and not is_admin:
     st.session_state.authenticated = False
@@ -997,36 +1085,33 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
         with col_v2:
             submit_cancel = st.form_submit_button("Cancel / Return")
 
+        if submit_cancel:
+            st.session_state.show_admin_login = False
+            st.rerun()
+
         if submit_verify:
             # Retrieve and validate the admin secret from Streamlit secrets safely
             totp_secret = st.secrets.get("admin_totp_secret", "")
             if not totp_secret:
                 st.error("❌ `admin_totp_secret` is missing from your Streamlit secrets configuration.")
             else:
-                # Clean and ensure the secret meets pyotp's minimum 112-bit (16 base32 characters) requirement
-                clean_secret = "".join(c for c in totp_secret.strip().upper() if c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+                clean_secret = normalize_totp_secret(totp_secret)
                 if not clean_secret:
-                    clean_secret = "JBSWY3DPEHPK3PXP" # Fallback safe base32 string if key is invalid/empty
-                
-                while len(clean_secret) < 16:
-                    clean_secret += clean_secret
-                
-                missing_padding = len(clean_secret) % 8
-                if missing_padding:
-                    clean_secret += "=" * (8 - missing_padding)
-
-                totp = pyotp.TOTP(clean_secret)
-                
-                # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
-                if totp.verify(totp_input.strip(), valid_window=1):
-                    st.session_state.admin_unlocked = True
-                    st.session_state.show_admin_login = False
-                    st.session_state.admin_active_tab = True
-                    st.session_state.admin_page = "AdminHome"
-                    st.success("Authentication successful! Unlocking admin dashboard...")
-                    st.rerun()
+                    st.error("❌ `admin_totp_secret` has no valid Base32 characters (A-Z, 2-7). Please fix it in your Streamlit secrets.")
                 else:
-                    st.error("❌ Invalid Authenticator code. Please try again.")
+                    # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
+                    totp_result = verify_totp_code(clean_secret, totp_input, window=1)
+                    if totp_result is None:
+                        st.error("❌ `admin_totp_secret` is not valid Base32. Please re-copy it into your Streamlit secrets.")
+                    elif totp_result:
+                        st.session_state.admin_unlocked = True
+                        st.session_state.show_admin_login = False
+                        st.session_state.admin_active_tab = True
+                        st.session_state.admin_page = "AdminHome"
+                        st.success("Authentication successful! Unlocking admin dashboard...")
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid Authenticator code. Please try again.")
     st.stop()
 
 # ---------------------------------------------------------
@@ -1045,13 +1130,9 @@ if is_admin and admin_mode:
         st.markdown("Monitor user activity, broadcast announcements, manage locked records, permissions, backups, and secret report inspections.")
 
         try:
-            users_resp = supabase.table("users").select("username, name, email, last_seen").execute()
-            att_resp = supabase.table("student_attendance").select("*").execute()
-            locks_resp = supabase.table("semester_locks").select("*").execute()
-
-            users_list = users_resp.data if users_resp.data else []
-            att_list = att_resp.data if att_resp.data else []
-            locks_list = locks_resp.data if locks_resp.data else []
+            users_list = fetch_all_rows("users", "username, name, email, last_seen", order_by="id")
+            att_list = fetch_all_rows("student_attendance", "id", order_by="id")
+            locks_list = fetch_all_rows("semester_locks", "id, is_locked", order_by="id")
 
             c_stat1, c_stat2, c_stat3 = st.columns(3)
             with c_stat1:
@@ -1132,21 +1213,38 @@ if is_admin and admin_mode:
             try:
                 backup_data = {
                     "backup_timestamp": datetime.now(timezone.utc).isoformat(),
-                    "users": supabase.table("users").select("*").execute().data,
-                    "student_attendance": supabase.table("student_attendance").select("*").execute().data,
-                    "semester_locks": supabase.table("semester_locks").select("*").execute().data,
-                    "student_assignments": supabase.table("student_assignments").select("*").execute().data,
-                    "student_exams": supabase.table("student_exams").select("*").execute().data,
-                    "student_timetables": supabase.table("student_timetables").select("*").execute().data,
-                    "student_holidays": supabase.table("student_holidays").select("*").execute().data,
-                    "study_materials": supabase.table("study_materials").select("*").execute().data,
-                    "study_material_permissions": supabase.table("study_material_permissions").select("*").execute().data,
-                    "admin_messages": supabase.table("admin_messages").select("*").execute().data,
-                    "system_settings": supabase.table("system_settings").select("*").execute().data,
+                    "users": fetch_all_rows("users", order_by="id"),
+                    "student_attendance": fetch_all_rows("student_attendance", order_by="id"),
+                    "semester_locks": fetch_all_rows("semester_locks", order_by="id"),
+                    "student_assignments": fetch_all_rows("student_assignments", order_by="id"),
+                    "student_exams": fetch_all_rows("student_exams", order_by="id"),
+                    "student_timetables": fetch_all_rows("student_timetables", order_by="id"),
+                    "student_holidays": fetch_all_rows("student_holidays", order_by="id"),
+                    "study_materials": fetch_all_rows("study_materials", order_by="id"),
+                    "study_material_permissions": fetch_all_rows("study_material_permissions", order_by="id"),
+                    "admin_messages": fetch_all_rows("admin_messages", order_by="id"),
+                    "system_settings": fetch_all_rows("system_settings", order_by="key"),
                 }
-                
+
                 json_string = json.dumps(backup_data, indent=4, default=str)
                 zip_buffer = io.BytesIO()
+                files_manifest = []
+                failed_downloads = []
+                used_zip_names = {"student_hub_full_backup.json", "links_inventory.txt", "files_manifest.json"}
+
+                def make_unique_zip_name(name):
+                    if name not in used_zip_names:
+                        used_zip_names.add(name)
+                        return name
+                    base, dot, ext_part = name.rpartition(".")
+                    counter = 2
+                    while True:
+                        candidate = f"{base}_{counter}.{ext_part}" if dot else f"{name}_{counter}"
+                        if candidate not in used_zip_names:
+                            used_zip_names.add(candidate)
+                            return candidate
+                        counter += 1
+
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     zip_file.writestr("student_hub_full_backup.json", json_string)
 
@@ -1167,12 +1265,53 @@ if is_admin and admin_mode:
                                 resp = requests.get(file_url, timeout=10)
                                 if resp.status_code == 200:
                                     ext = file_url.split(".")[-1].split("?")[0]
-                                    file_name_in_zip = f"{sem}/{sub_code}_{title}.{ext}"
+                                    file_name_in_zip = make_unique_zip_name(f"{sem}/{sub_code}_{title}.{ext}")
                                     zip_file.writestr(file_name_in_zip, resp.content)
+                                    files_manifest.append({
+                                        "table": "study_materials",
+                                        "row_id": mat.get("id"),
+                                        "column": "file_url",
+                                        "original_url": file_url,
+                                        "storage_path": storage_path_from_url(file_url),
+                                        "zip_path": file_name_in_zip,
+                                    })
+                                else:
+                                    failed_downloads.append(f"study_materials #{mat.get('id')}: {title} (HTTP {resp.status_code})")
                             except Exception:
-                                pass
+                                failed_downloads.append(f"study_materials #{mat.get('id')}: {title} (download error)")
+
+                    # Assignment attachments (uploaded files) are archived too
+                    for asg in backup_data.get("student_assignments", []):
+                        asg_url = asg.get("file_url") or ""
+                        if not asg_url.startswith("http"):
+                            continue
+                        asg_title = str(asg.get("title", "Untitled")).replace("/", "_").replace("\\", "_")
+                        try:
+                            resp = requests.get(asg_url, timeout=10)
+                            if resp.status_code == 200:
+                                ext = asg_url.split(".")[-1].split("?")[0]
+                                file_name_in_zip = make_unique_zip_name(
+                                    f"assignments/{asg.get('semester', 'General')}/{asg.get('subject_code', 'GEN')}_{asg_title}_{asg.get('id')}.{ext}"
+                                )
+                                zip_file.writestr(file_name_in_zip, resp.content)
+                                files_manifest.append({
+                                    "table": "student_assignments",
+                                    "row_id": asg.get("id"),
+                                    "column": "file_url",
+                                    "original_url": asg_url,
+                                    "storage_path": storage_path_from_url(asg_url),
+                                    "zip_path": file_name_in_zip,
+                                })
+                            else:
+                                failed_downloads.append(f"student_assignments #{asg.get('id')}: {asg_title} (HTTP {resp.status_code})")
+                        except Exception:
+                            failed_downloads.append(f"student_assignments #{asg.get('id')}: {asg_title} (download error)")
 
                     zip_file.writestr("links_inventory.txt", "".join(links_inventory_lines))
+                    zip_file.writestr("files_manifest.json", json.dumps(files_manifest, indent=4, default=str))
+
+                if failed_downloads:
+                    st.warning("⚠️ Some files could not be downloaded into the archive:\n\n" + "\n".join(f"- {f}" for f in failed_downloads))
 
                 zip_buffer.seek(0)
                 st.download_button(
