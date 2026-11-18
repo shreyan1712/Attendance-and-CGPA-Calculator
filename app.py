@@ -790,7 +790,6 @@ def save_assignment_to_db(email, semester, subject_code, title, due_date_str, fi
             "submission_link": submission_link
         }).execute()
     except Exception as e:
-        # Fallback if submission_link column doesn't exist yet in Supabase table
         try:
             supabase.table("student_assignments").insert({
                 "user_email": email,
@@ -1663,7 +1662,6 @@ elif current_page == "Attendance":
         sem_subjects = current_subjects
 
         if sem_subjects:
-            # 1. Exam & Working Days Calculation
             exams_list = load_exams_from_db(user_email, selected_semester)
             exam_countdown_banner = None
             remaining_periods_per_subject = {s["code"]: 0 for s in sem_subjects}
@@ -1714,7 +1712,6 @@ elif current_page == "Attendance":
             else:
                 st.caption("💡 *Tip: Log exam dates in the Exams page to calculate exact class periods left before exams.*")
 
-            # 2. Build Unified Analytical Table
             att_data = []
             sem_weighted_gp = 0.0
             sem_credits = 0
@@ -1769,10 +1766,8 @@ elif current_page == "Attendance":
             st.markdown("---")
             st.subheader("📋 Comprehensive Academic & Attendance Analysis Table")
             
-            # Display larger unified dataframe with full column width
             st.dataframe(df, use_container_width=True, height=len(df)*45 + 40)
 
-            # Bar Chart Visualizer
             chart_df = []
             for subj in sem_subjects:
                 att = subj["attended"]
@@ -1845,7 +1840,7 @@ elif current_page == "Assignments":
     else:
         subject_options = [f"[{s['code']}] {s['name']}" for s in current_subjects]
         
-        with st.expander("➕ Add New Assignment / Project Submission", expanded=True):
+        with st.expander("➕ Add New Assignment / Project Submission", expanded=False):
             with st.form("add_assignment_form", clear_on_submit=True):
                 col_a1, col_a2 = st.columns(2)
                 with col_a1:
@@ -1855,12 +1850,11 @@ elif current_page == "Assignments":
                     due_date_val = st.date_input("Due Date", value=date.today() + timedelta(days=7))
                     due_time_val = st.time_input("Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
-                # Separate input fields for Submission Link and File Upload
                 col_sub_opt1, col_sub_opt2 = st.columns(2)
                 with col_sub_opt1:
-                    submission_link_input = st.text_input("🔗 Submission Link", placeholder="https://... (URL to submit)")
+                    submission_link_input = st.text_input("🌐 Submission Link (Optional)", placeholder="https://... (URL to submit)")
                 with col_sub_opt2:
-                    uploaded_assignment_file = st.file_uploader("📁 Upload Assignment File", type=["pdf", "docx", "txt", "zip", "png", "jpg"])
+                    uploaded_assignment_file = st.file_uploader("📁 Upload Assignment File (PDF/Doc)", type=["pdf", "docx", "txt", "zip", "png", "jpg"])
 
                 submit_asgn = st.form_submit_button("Add Assignment", type="primary")
                 
@@ -1889,53 +1883,89 @@ elif current_page == "Assignments":
                         st.rerun()
 
         st.markdown("---")
-        st.subheader("📋 Active Assignments")
+        st.subheader("📋 Active Assignments by Subject")
         assignments = load_assignments_from_db(user_email, selected_semester)
+        
         if assignments:
-            now_ist = get_ist_time()
+            # Group assignments by subject code
+            assignments_by_subject = {}
             for asg in assignments:
-                sub_code = asg["subject_code"]
-                title = asg["title"]
-                due_str = asg["due_date"]
-                f_url = asg.get("file_url")
-                sub_link = asg.get("submission_link")
-                
-                due_dt = datetime.fromisoformat(due_str)
-                if due_dt.tzinfo is not None:
-                    due_dt = due_dt.astimezone(IST)
-                
-                diff = due_dt - now_ist
-                if diff.total_seconds() > 0:
-                    days = diff.days
-                    hours, remainder = divmod(diff.seconds, 3600)
-                    minutes, _ = divmod(remainder, 60)
-                    timer_str = f"⏳ **{days}d {hours}h {minutes}m remaining**"
-                    status_badge = "🟢 In Progress"
-                else:
-                    timer_str = "⚠️ **OVERDUE**"
-                    status_badge = "🔴 Past Due"
+                scode = asg["subject_code"]
+                assignments_by_subject.setdefault(scode, []).append(asg)
 
-                with st.container():
-                    col_b1, col_b2, col_b3 = st.columns([3, 2, 1])
-                    with col_b1:
-                        st.markdown(f"**[{sub_code}] {title}** ({status_badge})")
-                        
-                        # Clean clickable action buttons for uploaded file and submission link
-                        col_link_btn1, col_link_btn2 = st.columns(2)
-                        with col_link_btn1:
-                            if f_url:
-                                st.link_button("📄 Open/Download File", f_url, use_container_width=True)
-                        with col_link_btn2:
-                            if sub_link:
-                                st.link_button("🌐 Submission Link", sub_link, use_container_width=True)
-                    with col_b2:
-                        st.markdown(timer_str)
-                        st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
-                    with col_b3:
-                        if st.button("🗑️ Remove", key=f"del_asg_{asg['id']}"):
-                            supabase.table("student_assignments").delete().eq("id", asg['id']).execute()
-                            st.rerun()
-                    st.divider()
+            for subj in current_subjects:
+                scode = subj["code"]
+                sname = subj["name"]
+                subj_asgns = assignments_by_subject.get(scode, [])
+
+                with st.expander(f"📚 [{scode}] {sname} ({len(subj_asgns)} Active Assignment(s))", expanded=True):
+                    if subj_asgns:
+                        for asg in subj_asgns:
+                            title = asg["title"]
+                            due_str = asg["due_date"]
+                            f_url = asg.get("file_url")
+                            sub_link = asg.get("submission_link")
+                            
+                            due_dt = datetime.fromisoformat(due_str)
+                            if due_dt.tzinfo is not None:
+                                due_dt = due_dt.astimezone(IST)
+                            
+                            now_ist = get_ist_time()
+                            diff = due_dt - now_ist
+                            if diff.total_seconds() > 0:
+                                days = diff.days
+                                hours, remainder = divmod(diff.seconds, 3600)
+                                minutes, _ = divmod(remainder, 60)
+                                timer_str = f"⏳ **{days}d {hours}h {minutes}m remaining**"
+                                status_badge = "🟢 In Progress"
+                            else:
+                                timer_str = "⚠️ **OVERDUE**"
+                                status_badge = "🔴 Past Due"
+
+                            with st.container():
+                                col_b1, col_b2, col_b3 = st.columns([3, 2, 1])
+                                with col_b1:
+                                    st.markdown(f"**{title}** ({status_badge})")
+                                    st.caption(f"Due: {due_dt.strftime('%d %b %Y, %I:%M %p')}")
+                                    
+                                    # Two separate clean buttons for See Assignment and Submit Assignment
+                                    col_btn_a, col_btn_b = st.columns(2)
+                                    with col_btn_a:
+                                        if f_url:
+                                            try:
+                                                file_resp = requests.get(f_url, timeout=5)
+                                                if file_resp.status_code == 200:
+                                                    ext = f_url.split(".")[-1].split("?")[0]
+                                                    st.download_button(
+                                                        label="📄 See Assignment",
+                                                        data=file_resp.content,
+                                                        file_name=f"{scode}_{title}.{ext}",
+                                                        mime="application/octet-stream",
+                                                        key=f"dl_asg_{asg['id']}",
+                                                        use_container_width=True
+                                                    )
+                                                else:
+                                                    st.link_button("📄 See Assignment", f_url, use_container_width=True)
+                                            except Exception:
+                                                st.link_button("📄 See Assignment", f_url, use_container_width=True)
+                                        else:
+                                            st.caption("No file uploaded")
+
+                                    with col_btn_b:
+                                        if sub_link:
+                                            st.link_button("🌐 Submit Assignment", sub_link, use_container_width=True)
+                                        else:
+                                            st.caption("No submission link")
+
+                                with col_b2:
+                                    st.markdown(timer_str)
+                                with col_b3:
+                                    if st.button("🗑️ Remove", key=f"del_asg_{asg['id']}"):
+                                        supabase.table("student_assignments").delete().eq("id", asg['id']).execute()
+                                        st.rerun()
+                                st.divider()
+                    else:
+                        st.info(f"No assignments for {scode} - {sname}")
         else:
             st.info("No assignments recorded for this semester.")
 
@@ -2037,7 +2067,6 @@ elif current_page == "Exams":
         saved_holidays = load_holidays_from_db(user_email, selected_semester)
         custom_dict = {h["holiday_date"]: h for h in saved_holidays}
 
-        # Render complete holiday schedule (Next 60 days overview)
         holiday_entries_list = []
         today = date.today()
         for i in range(0, 90):
