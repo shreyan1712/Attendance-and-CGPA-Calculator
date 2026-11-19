@@ -1,0 +1,36 @@
+name: Automatic Database Backup
+
+on:
+  schedule:
+    # 21:30 UTC on Monday and Thursday = 03:00 IST on Tuesday and Friday.
+    # Running twice a week also keeps a free Supabase project from being paused for inactivity.
+    - cron: "30 21 * * 1,4"
+  workflow_dispatch:   # lets you run it by hand: repo -> Actions -> "Automatic Database Backup" -> Run workflow
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Back up database and email it
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          BACKUP_EMAIL_TO: ${{ secrets.BACKUP_EMAIL_TO }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+        run: python auto_backup.py
