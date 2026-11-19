@@ -8,6 +8,7 @@ import math
 import random
 import secrets
 import struct
+import threading
 import time
 import zipfile
 from urllib.parse import unquote
@@ -39,9 +40,44 @@ except Exception as e:
     st.stop()
 
 
-# Helper function to hash passwords securely
+# Helper functions to hash & verify passwords securely
+# New format:  pbkdf2_sha256$<iterations>$<salt>$<hash>   (random salt per password)
+# Old accounts (plain unsalted SHA-256) still log in and are upgraded automatically at their next login.
+PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 300_000
+
+
 def hash_password(password):
+    salt_hex = secrets.token_hex(16)
+    derived = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt_hex), PASSWORD_HASH_ITERATIONS
+    )
+    return f"{PASSWORD_HASH_PREFIX}${PASSWORD_HASH_ITERATIONS}${salt_hex}${derived.hex()}"
+
+
+def legacy_hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_password(password, stored_hash):
+    """True if `password` matches `stored_hash` (new salted format or the old SHA-256 format)."""
+    if not stored_hash:
+        return False
+    try:
+        stored_hash = str(stored_hash)
+        if stored_hash.startswith(PASSWORD_HASH_PREFIX + "$"):
+            _, iterations, salt_hex, expected_hex = stored_hash.split("$")
+            derived = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
+            )
+            return hmac.compare_digest(derived.hex().encode(), expected_hex.encode())
+        return hmac.compare_digest(legacy_hash_password(password).encode(), stored_hash.encode())
+    except Exception:
+        return False
+
+
+def password_needs_upgrade(stored_hash):
+    return not str(stored_hash).startswith(PASSWORD_HASH_PREFIX + "$")
 
 
 # Helper function to get current Indian Standard Time (IST)
@@ -50,6 +86,11 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 def get_ist_time():
     return datetime.now(IST)
+
+
+# Today's date in IST (use this instead of ist_today(), which follows the server's UTC clock)
+def ist_today():
+    return get_ist_time().date()
 
 
 # Helper function to parse DB timestamps into IST safely
@@ -107,6 +148,62 @@ def storage_path_from_url(file_url):
     return None
 
 
+@st.cache_resource
+def _get_rate_limit_store():
+    """One store shared by every visitor session of this running app (resets if the app restarts)."""
+    return {"lock": threading.Lock(), "entries": {}}
+
+
+def rate_limit_remaining(key):
+    """Seconds left on a lock for `key` (0 = not locked)."""
+    store = _get_rate_limit_store()
+    with store["lock"]:
+        entry = store["entries"].get(key)
+        if not entry:
+            return 0
+        return max(0, int(math.ceil(entry.get("locked_until", 0) - time.time())))
+
+
+def rate_limit_record_failure(key, max_attempts=5, window_seconds=900, lock_seconds=900):
+    """Record one failed attempt; after `max_attempts` inside `window_seconds`, lock `key` for `lock_seconds`."""
+    store = _get_rate_limit_store()
+    now = time.time()
+    with store["lock"]:
+        entries = store["entries"]
+        entry = entries.setdefault(key, {"fails": [], "locked_until": 0})
+        entry["fails"] = [t for t in entry["fails"] if now - t < window_seconds] + [now]
+        if len(entry["fails"]) >= max_attempts:
+            entry["locked_until"] = now + lock_seconds
+            entry["fails"] = []
+        if len(entries) > 5000:  # keep memory bounded
+            for k in [k for k, v in entries.items() if v["locked_until"] < now and (not v["fails"] or now - v["fails"][-1] > 3600)]:
+                entries.pop(k, None)
+
+
+def rate_limit_clear(key):
+    store = _get_rate_limit_store()
+    with store["lock"]:
+        store["entries"].pop(key, None)
+
+
+def rate_limit_message(key):
+    minutes = max(1, int(math.ceil(rate_limit_remaining(key) / 60)))
+    return f"🔒 Too many failed attempts. Please try again in {minutes} minute(s)."
+
+
+def delete_storage_file_by_url(file_url):
+    """Remove an uploaded file from the cloud storage bucket (external links are ignored)."""
+    path = storage_path_from_url(file_url)
+    if not path:
+        return False
+    try:
+        supabase.storage.from_(STORAGE_BUCKET_NAME).remove([path])
+        return True
+    except Exception as storage_err:
+        st.warning(f"The record was deleted, but its file could not be removed from storage: {storage_err}")
+        return False
+
+
 def normalize_totp_secret(raw_secret):
     """Clean the admin_totp_secret into padded Base32 (same normalisation the app always used).
     Returns None if the secret has no usable Base32 characters."""
@@ -160,7 +257,7 @@ def send_otp_email(recipient_email, otp_code):
             "Content-Type": "application/json",
         }
         payload = {
-            "from": "Student Hub <onboarding@resend.dev>",
+            "from": st.secrets.get("RESEND_FROM_EMAIL", "Student Hub <onboarding@resend.dev>"),
             "to": [recipient_email],
             "subject": "🔐 Password Reset OTP - Student Academic Hub",
             "html": f"""
@@ -189,7 +286,7 @@ def send_report_email(recipient_email, subject_line, report_html):
             "Content-Type": "application/json",
         }
         payload = {
-            "from": "Student Hub <onboarding@resend.dev>",
+            "from": st.secrets.get("RESEND_FROM_EMAIL", "Student Hub <onboarding@resend.dev>"),
             "to": [recipient_email],
             "subject": subject_line,
             "html": report_html,
@@ -521,14 +618,17 @@ if not st.session_state.authenticated:
                 m_user = st.text_input("Admin Username / Email")
                 m_pass = st.text_input("Password", type="password")
                 m_sub = st.form_submit_button("Bypass & Log In", type="primary")
-                if m_sub:
+                if m_sub and rate_limit_remaining(f"login:{m_user.strip().lower()}") > 0:
+                    st.error(rate_limit_message(f"login:{m_user.strip().lower()}"))
+                elif m_sub:
                     try:
                         res = supabase.table("users").select("*").eq("email", m_user.strip()).execute()
                         if not res.data:
                             res = supabase.table("users").select("*").eq("username", m_user.strip()).execute()
                         if res.data:
                             u_rec = res.data[0]
-                            if admin_email_matches(u_rec["email"], admin_email_secret) and u_rec["password_hash"] == hash_password(m_pass):
+                            if admin_email_matches(u_rec["email"], admin_email_secret) and verify_password(m_pass, u_rec["password_hash"]):
+                                rate_limit_clear(f"login:{m_user.strip().lower()}")
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = u_rec["email"]
                                 st.session_state.user_name = u_rec["name"]
@@ -536,6 +636,7 @@ if not st.session_state.authenticated:
                                 st.success("Admin emergency bypass successful!")
                                 st.rerun()
                             else:
+                                rate_limit_record_failure(f"login:{m_user.strip().lower()}")
                                 st.error("Invalid admin credentials.")
                         else:
                             st.error("User not found.")
@@ -611,6 +712,8 @@ if not st.session_state.authenticated:
                 if submit_login:
                     if not login_user or not login_pass:
                         st.error("Please enter both username and password.")
+                    elif rate_limit_remaining(f"login:{login_user.strip().lower()}") > 0:
+                        st.error(rate_limit_message(f"login:{login_user.strip().lower()}"))
                     else:
                         try:
                             clean_username = login_user.strip()
@@ -630,8 +733,15 @@ if not st.session_state.authenticated:
 
                             if response.data:
                                 db_user = response.data[0]
-                                hashed_input = hash_password(login_pass)
-                                if db_user["password_hash"] == hashed_input:
+                                if verify_password(login_pass, db_user["password_hash"]):
+                                    rate_limit_clear(f"login:{clean_username.lower()}")
+                                    if password_needs_upgrade(db_user["password_hash"]):
+                                        try:
+                                            supabase.table("users").update(
+                                                {"password_hash": hash_password(login_pass)}
+                                            ).eq("email", db_user["email"]).execute()
+                                        except Exception:
+                                            pass
                                     admin_email_secret = st.secrets.get("admin_email", "")
                                     if is_maintenance and not admin_email_matches(db_user["email"], admin_email_secret):
                                         st.error("🚧 SITE IS UNDER MAINTENANCE. Regular logins are currently disabled.")
@@ -643,8 +753,10 @@ if not st.session_state.authenticated:
                                         st.success("Login successful! Loading dashboard...")
                                         st.rerun()
                                 else:
+                                    rate_limit_record_failure(f"login:{clean_username.lower()}")
                                     st.error("Incorrect password. Please check your credentials.")
                             else:
+                                rate_limit_record_failure(f"login:{clean_username.lower()}")
                                 st.error("Username or email does not exist.")
                         except Exception as err:
                             st.error(f"Database error during login: {err}")
@@ -691,6 +803,8 @@ if not st.session_state.authenticated:
                     if submit_send_otp:
                         if not reset_email_input:
                             st.error("Please enter your email address.")
+                        elif rate_limit_remaining(f"otpsend:{reset_email_input.strip().lower()}") > 0:
+                            st.error("🔒 Too many reset requests. Please wait a few minutes before requesting another OTP.")
                         else:
                             try:
                                 response = (
@@ -703,6 +817,7 @@ if not st.session_state.authenticated:
                                     db_user = response.data[0]
                                     user_email_db = db_user["email"]
                                     
+                                    rate_limit_record_failure(f"otpsend:{reset_email_input.strip().lower()}", max_attempts=3, window_seconds=600, lock_seconds=600)
                                     otp = str(secrets.randbelow(900000) + 100000)
                                     expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
                                     
@@ -759,11 +874,16 @@ if not st.session_state.authenticated:
                                     now = datetime.now(timezone.utc)
                                     expiry_time = datetime.fromisoformat(db_expiry) if db_expiry else now
 
-                                    if not db_otp or not hmac.compare_digest(entered_otp.strip().encode(), str(db_otp).encode()):
+                                    otp_lock_key = f"otp:{st.session_state.reset_email}"
+                                    if rate_limit_remaining(otp_lock_key) > 0:
+                                        st.error(rate_limit_message(otp_lock_key))
+                                    elif not db_otp or not hmac.compare_digest(entered_otp.strip().encode(), str(db_otp).encode()):
+                                        rate_limit_record_failure(otp_lock_key)
                                         st.error("Invalid OTP code.")
                                     elif now > expiry_time:
                                         st.error("OTP has expired.")
                                     else:
+                                        rate_limit_clear(otp_lock_key)
                                         new_hashed_pass = hash_password(new_reset_pass)
                                         supabase.table("users").update({
                                             "password_hash": new_hashed_pass,
@@ -994,6 +1114,67 @@ def load_materials_from_db(semester, email=None):
 
 
 # ---------------------------------------------------------
+# CONFIRMATION DIALOGS FOR DESTRUCTIVE ACTIONS (also clean up the file in cloud storage)
+# ---------------------------------------------------------
+@st.dialog("⚠️ Confirm Assignment Deletion")
+def confirm_delete_assignment_dialog(asg_id, asg_title, file_url=None):
+    st.markdown(f"Are you sure you want to delete the assignment **{asg_title}**?")
+    if storage_path_from_url(file_url):
+        st.caption("📎 Its uploaded file will also be permanently deleted from cloud storage.")
+    col_y, col_n = st.columns(2)
+    with col_y:
+        if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
+            try:
+                supabase.table("student_assignments").delete().eq("id", asg_id).execute()
+                delete_storage_file_by_url(file_url)
+            except Exception as del_err:
+                st.error(f"Could not delete the assignment: {del_err}")
+            else:
+                st.rerun()
+    with col_n:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+
+@st.dialog("⚠️ Confirm Exam Deletion")
+def confirm_delete_exam_dialog(exam_id, exam_label):
+    st.markdown(f"Are you sure you want to delete this exam entry?\n\n**{exam_label}**")
+    col_y, col_n = st.columns(2)
+    with col_y:
+        if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
+            try:
+                supabase.table("student_exams").delete().eq("id", exam_id).execute()
+            except Exception as del_err:
+                st.error(f"Could not delete the exam: {del_err}")
+            else:
+                st.rerun()
+    with col_n:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+
+@st.dialog("⚠️ Confirm Study Material Deletion")
+def confirm_delete_material_dialog(mat_id, mat_label, file_url=None, is_rejection=False):
+    action_word = "reject and delete" if is_rejection else "delete"
+    st.markdown(f"Are you sure you want to {action_word} **{mat_label}**?")
+    if storage_path_from_url(file_url):
+        st.caption("📎 The uploaded file will also be permanently deleted from cloud storage.")
+    col_y, col_n = st.columns(2)
+    with col_y:
+        if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
+            try:
+                supabase.table("study_materials").delete().eq("id", mat_id).execute()
+                delete_storage_file_by_url(file_url)
+            except Exception as del_err:
+                st.error(f"Could not delete the material: {del_err}")
+            else:
+                st.rerun()
+    with col_n:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+
+# ---------------------------------------------------------
 # CLEAN SIDEBAR: ONLY GLOBAL SETTINGS & USER INFO
 # ---------------------------------------------------------
 st.sidebar.markdown(f"### 👋 Welcome, **{user_name}**")
@@ -1100,10 +1281,14 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
                     st.error("❌ `admin_totp_secret` has no valid Base32 characters (A-Z, 2-7). Please fix it in your Streamlit secrets.")
                 else:
                     # valid_window=1 allows a tolerance of ±30 seconds for server/app time differences
-                    totp_result = verify_totp_code(clean_secret, totp_input, window=1)
-                    if totp_result is None:
+                    totp_lock_left = rate_limit_remaining("admin_totp")
+                    totp_result = verify_totp_code(clean_secret, totp_input, window=1) if totp_lock_left <= 0 else False
+                    if totp_lock_left > 0:
+                        st.error(rate_limit_message("admin_totp"))
+                    elif totp_result is None:
                         st.error("❌ `admin_totp_secret` is not valid Base32. Please re-copy it into your Streamlit secrets.")
                     elif totp_result:
+                        rate_limit_clear("admin_totp")
                         st.session_state.admin_unlocked = True
                         st.session_state.show_admin_login = False
                         st.session_state.admin_active_tab = True
@@ -1111,6 +1296,7 @@ if is_admin and st.session_state.show_admin_login and not st.session_state.admin
                         st.success("Authentication successful! Unlocking admin dashboard...")
                         st.rerun()
                     else:
+                        rate_limit_record_failure("admin_totp", max_attempts=5, window_seconds=600, lock_seconds=600)
                         st.error("❌ Invalid Authenticator code. Please try again.")
     st.stop()
 
@@ -1317,7 +1503,7 @@ if is_admin and admin_mode:
                 st.download_button(
                     label="💾 Click Here to Save Complete Archive (.ZIP)",
                     data=zip_buffer,
-                    file_name=f"student_hub_complete_archive_{date.today()}.zip",
+                    file_name=f"student_hub_complete_archive_{ist_today()}.zip",
                     mime="application/zip",
                     type="primary"
                 )
@@ -1382,9 +1568,7 @@ if is_admin and admin_mode:
                                     st.rerun()
                             with col_ap_btn2:
                                 if st.button("❌ Reject", key=f"rej_{p_mat['id']}"):
-                                    supabase.table("study_materials").delete().eq("id", p_mat['id']).execute()
-                                    st.success("Material rejected & deleted.")
-                                    st.rerun()
+                                    confirm_delete_material_dialog(p_mat['id'], f"[{p_mat['subject_code']}] {p_mat['title']}", p_mat.get("file_url"), is_rejection=True)
                         st.divider()
             else:
                 st.success("🎉 No pending study materials in the queue. All clear!")
@@ -1524,7 +1708,7 @@ if is_admin and admin_mode:
                                     "attended": 0,
                                     "conducted": 0,
                                     "grade_point": 0.0,
-                                    "attendance_date": str(date.today()),
+                                    "attendance_date": str(ist_today()),
                                 })
                             save_data_to_db(target_user_email, target_sem, cleaned_subjects)
                             success_msgs.append(f"Copied {len(cleaned_subjects)} subjects")
@@ -1717,7 +1901,7 @@ elif current_page == "Attendance":
                             "attended": int(new_attended),
                             "conducted": int(new_conducted),
                             "grade_point": 0.0,
-                            "attendance_date": str(date.today()),
+                            "attendance_date": str(ist_today()),
                         })
                         st.session_state.all_semesters[selected_semester] = current_subjects
                         save_data_to_db(user_email, selected_semester, current_subjects)
@@ -1728,7 +1912,7 @@ elif current_page == "Attendance":
             st.markdown("---")
             st.subheader(f"Currently Registered Subjects ({selected_semester})")
             for idx, subj in enumerate(current_subjects, 1):
-                att_date = subj.get("attendance_date", str(date.today()))
+                att_date = subj.get("attendance_date", str(ist_today()))
                 st.markdown(f"{idx}. **[{subj['code']}] {subj['name']}** (Credits: {subj['credits']}, Attended: {subj['attended']}/{subj['conducted']}, Grade Point: {subj['grade_point']}, Last Updated: `{att_date}`)")
 
     elif att_sub_mode == "🔄 Update Existing Records":
@@ -1756,7 +1940,7 @@ elif current_page == "Attendance":
                             st.rerun()
 
                 for i, subj in enumerate(current_subjects):
-                    existing_date_str = subj.get("attendance_date", str(date.today()))
+                    existing_date_str = subj.get("attendance_date", str(ist_today()))
                     with st.expander(f"📖 [{subj['code']}] {subj['name']} (Credits: {subj['credits']} | Last Updated: {existing_date_str})"):
                         if st.button("🗑️ Delete Subject", key=f"del_{selected_semester}_{i}"):
                             confirm_delete_dialog(selected_semester, i, subj["code"], subj["name"], current_subjects)
@@ -1785,7 +1969,7 @@ elif current_page == "Attendance":
                             or conducted != subj["conducted"]
                             or endterm != subj.get("grade_point", 0.0)
                         )
-                        final_date = str(date.today()) if field_changed else existing_date_str
+                        final_date = str(ist_today()) if field_changed else existing_date_str
 
                         updated_subjects.append({
                             "code": code.upper(),
@@ -1828,7 +2012,7 @@ elif current_page == "Attendance":
                     exam_dates.append(dt_obj.date())
                 
                 first_exam_date = min(exam_dates)
-                today_date = date.today()
+                today_date = ist_today()
                 days_left_to_exam = (first_exam_date - today_date).days
 
                 if days_left_to_exam > 0:
@@ -1870,7 +2054,7 @@ elif current_page == "Attendance":
             for idx, subj in enumerate(sem_subjects, 1):
                 att = subj["attended"]
                 cond = subj["conducted"]
-                att_date = subj.get("attendance_date", str(date.today()))
+                att_date = subj.get("attendance_date", str(ist_today()))
                 pct = (att / cond * 100) if cond > 0 else 0.0
 
                 if pct >= default_target:
@@ -1998,7 +2182,7 @@ elif current_page == "Assignments":
                     sel_sub_str = st.selectbox("Select Subject", options=subject_options)
                     asgn_title = st.text_input("Assignment Title", placeholder="e.g. Lab Report #3")
                 with col_a2:
-                    due_date_val = st.date_input("Due Date", value=date.today() + timedelta(days=7))
+                    due_date_val = st.date_input("Due Date", value=ist_today() + timedelta(days=7))
                     due_time_val = st.time_input("Due Time", value=datetime.strptime("23:59", "%H:%M").time())
                 
                 col_sub_opt1, col_sub_opt2 = st.columns(2)
@@ -2110,8 +2294,7 @@ elif current_page == "Assignments":
                                     st.markdown(timer_str)
                                 with col_b3:
                                     if st.button("🗑️ Remove", key=f"del_asg_{asg['id']}"):
-                                        supabase.table("student_assignments").delete().eq("id", asg['id']).execute()
-                                        st.rerun()
+                                        confirm_delete_assignment_dialog(asg['id'], title, f_url)
                                 st.divider()
                     else:
                         st.info(f"No assignments for {scode} - {sname}")
@@ -2140,7 +2323,7 @@ elif current_page == "Exams":
                         sel_sub_exam = st.selectbox("Select Subject", options=subject_options, key="exam_sub_sel")
                         exam_type = st.selectbox("Exam Type", options=["Mid-Term Examination", "End-Term Examination", "Quiz / Test"])
                     with col_e2:
-                        exam_date_val = st.date_input("Exam Date", value=date.today() + timedelta(days=14))
+                        exam_date_val = st.date_input("Exam Date", value=ist_today() + timedelta(days=14))
                         exam_time_val = st.time_input("Exam Start Time", value=datetime.strptime("10:00", "%H:%M").time())
                     
                     exam_syllabus = st.text_area("Syllabus Outline", placeholder="e.g. Units 1 to 3")
@@ -2176,8 +2359,7 @@ elif current_page == "Exams":
                     with st.expander(f"📑 [{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}"):
                         st.write(ex.get("syllabus") if ex.get("syllabus") else "No syllabus entered.")
                         if st.button("🗑️ Delete Exam Entry", key=f"del_ex_{ex['id']}"):
-                            supabase.table("student_exams").delete().eq("id", ex['id']).execute()
-                            st.rerun()
+                            confirm_delete_exam_dialog(ex['id'], f"[{ex['subject_code']}] {ex['exam_type']} — {dt_obj.strftime('%d %b %Y, %I:%M %p')}")
             else:
                 st.info("No exam schedules logged.")
 
@@ -2188,9 +2370,9 @@ elif current_page == "Exams":
         with st.form("add_holiday_range_form", clear_on_submit=True):
             col_h1, col_h2, col_h3 = st.columns([2, 2, 3])
             with col_h1:
-                h_start_date = st.date_input("Start Date", value=date.today())
+                h_start_date = st.date_input("Start Date", value=ist_today())
             with col_h2:
-                h_end_date = st.date_input("End Date (Inclusive)", value=date.today())
+                h_end_date = st.date_input("End Date (Inclusive)", value=ist_today())
             with col_h3:
                 h_reason = st.text_input("Holiday Reason / Title", placeholder="e.g. Diwali Vacation / Winter Break")
             
@@ -2217,7 +2399,7 @@ elif current_page == "Exams":
         custom_dict = {h["holiday_date"]: h for h in saved_holidays}
 
         holiday_entries_list = []
-        today = date.today()
+        today = ist_today()
         for i in range(0, 90):
             check_date = today + timedelta(days=i)
             d_str = str(check_date)
@@ -2427,8 +2609,7 @@ elif current_page == "Notes":
                     with col_res3:
                         if is_admin or mat["uploader_email"] == user_email:
                             if st.button("🗑️ Delete", key=f"del_mat_{mat['id']}"):
-                                supabase.table("study_materials").delete().eq("id", mat['id']).execute()
-                                st.rerun()
+                                confirm_delete_material_dialog(mat['id'], f"[{mat['subject_code']}] {mat['title']}", mat.get("file_url"))
                     st.divider()
         else:
             st.info("No approved study materials available for this semester.")
